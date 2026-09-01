@@ -1,0 +1,12 @@
+{
+  "students": [],
+  "attendance": [],
+  "achievements": [],
+  "events": [],
+  "messages": [],
+  "registrations": [],
+  "sheetsConfig": {
+    "webAppUrl": "",
+    "enabled": false
+  }
+}

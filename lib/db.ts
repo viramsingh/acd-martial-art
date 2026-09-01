@@ -18,66 +18,10 @@ export interface DatabaseSchema {
 }
 
 const DEFAULT_DB: DatabaseSchema = {
-  students: [
-    {
-      id: 'ACD-2026-001',
-      fullName: 'Aarav Sharma',
-      dob: '2012-05-14',
-      gender: 'Male',
-      phone: '9876543210',
-      email: 'aarav.sharma@example.com',
-      address: 'Near Gandhi Chouraha, Mandsaur',
-      guardianName: 'Rajesh Sharma',
-      emergencyPhone: '9876543211',
-      schoolName: 'St. Thomas Higher Secondary School',
-      batch: 'Evening 5:00 To 6:00',
-      beltLevel: 'Green Belt',
-      joiningDate: '2025-01-10',
-      status: 'ACTIVE',
-    },
-    {
-      id: 'ACD-2026-002',
-      fullName: 'Ananya Jain',
-      dob: '2014-08-22',
-      gender: 'Female',
-      phone: '9826012345',
-      email: 'ananya.jain@example.com',
-      address: 'BGP Street, Mandsaur',
-      guardianName: 'Vikram Jain',
-      emergencyPhone: '9826012346',
-      schoolName: 'Lotus Valley Public School',
-      batch: 'Morning 6:00 To 7:00',
-      beltLevel: 'Yellow Belt',
-      joiningDate: '2025-02-01',
-      status: 'ACTIVE',
-    }
-  ],
+  students: [],
   attendance: [],
-  achievements: [
-    {
-      id: 'ACH-001',
-      title: 'State Taekwondo Championship Gold Medal',
-      studentName: 'Aarav Sharma',
-      event: 'MP State Taekwondo Championship 2025',
-      position: 'Gold Medalist (Under-14 Category)',
-      date: '2025-11-15',
-      imageUrl: '/assets/achievement_trophy.jpg',
-      description: 'Secured 1st position with outstanding kick combinations and tactical sparring defense.'
-    }
-  ],
-  events: [
-    {
-      id: 'EVT-001',
-      title: 'Annual Belt Promotion Exam & Seminar',
-      category: 'Belt Exam',
-      date: '2026-09-15',
-      time: '04:00 PM - 07:00 PM',
-      location: 'ACD Dojang Main Hall, Sports Club Mandsaur',
-      desc: 'Annual physical test, pattern execution, and belt rank evaluation under Master Aditya Chanal Dojang.',
-      badgeColor: 'bg-red-600 text-white',
-      image: '/assets/IMG_4159.PNG'
-    }
-  ],
+  achievements: [],
+  events: [],
   messages: [],
   registrations: [],
   sheetsConfig: {
