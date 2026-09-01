@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { Trophy, Award, Star, Calendar, Filter, Sparkles, Medal } from 'lucide-react';
-import { getAchievements } from '@/lib/sheets';
+import { getAchievements, fetchAchievements } from '@/lib/sheets';
 import { Achievement } from '@/types';
 
 export default function AchievementsPage() {
@@ -11,7 +11,9 @@ export default function AchievementsPage() {
   const [filter, setFilter] = useState<string>('ALL');
 
   useEffect(() => {
-    setAchievements(getAchievements());
+    fetchAchievements()
+      .then((data) => setAchievements(data))
+      .catch(() => setAchievements(getAchievements()));
   }, []);
 
   const filteredList = achievements.filter((item) => {

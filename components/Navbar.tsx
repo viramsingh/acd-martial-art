@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Shield, ChevronRight, UserCheck } from 'lucide-react';
+import { Menu, X, ChevronRight, UserCheck } from 'lucide-react';
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -12,9 +12,14 @@ export default function Navbar() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsLoggedIn(localStorage.getItem('acd_admin_auth') === 'true');
-    }
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        setIsLoggedIn(!!data.authenticated);
+      })
+      .catch(() => {
+        setIsLoggedIn(false);
+      });
   }, [pathname]);
 
   const navLinks = [

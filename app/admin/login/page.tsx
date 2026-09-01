@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Lock, User, ShieldCheck, Key, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { User, Key, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 
 export default function AdminLoginPage() {
@@ -15,36 +15,48 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const auth = localStorage.getItem('acd_admin_auth');
-      if (auth === 'true') {
-        router.replace('/admin/dashboard');
-      }
-    }
+  useEffect(() => {
+    // Check if session is active
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated) {
+          router.replace('/admin/dashboard');
+        }
+      })
+      .catch(() => {});
   }, [router]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
-    setTimeout(() => {
-      const customUser = localStorage.getItem('acd_custom_admin_user') || 'admin';
-      const customPass = localStorage.getItem('acd_custom_admin_pass') || 'admin123';
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
 
-      if (username.trim() === customUser && password === customPass) {
-        localStorage.setItem('acd_admin_auth', 'true');
-        localStorage.setItem('acd_admin_user', 'Grandmaster Admin');
+      const data = await res.json();
+
+      if (res.ok && data.success) {
         showToast('Welcome back, Admin! Authenticated successfully.', 'success');
         router.push('/admin/dashboard');
       } else {
-        const errStr = 'Invalid username or password. Please check your admin credentials.';
+        const errStr = data.message || 'Invalid username or password. Please check credentials.';
         setError(errStr);
         showToast(errStr, 'error');
-        setLoading(false);
       }
-    }, 600);
+    } catch (err: any) {
+      console.error('Login error:', err);
+      const errStr = 'Network or server error during login.';
+      setError(errStr);
+      showToast(errStr, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -112,7 +124,7 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider"
+            className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider disabled:opacity-50"
           >
             {loading ? 'Authenticating...' : 'Log In To Admin Dashboard'}
             <ArrowRight className="w-4 h-4" />

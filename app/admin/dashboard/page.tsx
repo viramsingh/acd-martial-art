@@ -14,7 +14,12 @@ import {
   getEvents, addEvent, updateEvent, deleteEvent,
   getContactMessages, markMessageRead, deleteContactMessage,
   getRegistrations, approveRegistration, rejectRegistration,
-  getGoogleSheetsConfig, saveGoogleSheetsConfig, GoogleSheetsConfig
+  fetchStudents, fetchAttendanceRecords, fetchAchievements, fetchEvents,
+  fetchContactMessages, fetchRegistrations, saveStudentApi, updateStudentBeltApi,
+  deleteStudentApi, markAttendanceApi, addAchievementApi, updateAchievementApi,
+  deleteAchievementApi, addEventApi, updateEventApi, deleteEventApi,
+  markMessageReadApi, deleteContactMessageApi, approveRegistrationApi, rejectRegistrationApi,
+  getGoogleSheetsConfig, saveGoogleSheetsConfig, fetchGoogleSheetsConfig, saveGoogleSheetsConfigApi, GoogleSheetsConfig
 } from '@/lib/sheets';
 import { Student, AttendanceRecord, Achievement, ContactMessage, StudentRegistration, BeltLevel, UpcomingEvent } from '@/types';
 import { useToast } from '@/context/ToastContext';
@@ -130,42 +135,46 @@ export default function AdminDashboardPage() {
   const [showPassText, setShowPassText] = useState(false);
 
   // Edit Handlers
-  const handleUpdateStudentSubmit = (e: React.FormEvent) => {
+  const handleUpdateStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
-    saveStudent(editingStudent);
-    refreshData();
+    await saveStudentApi(editingStudent);
+    await refreshData();
     setEditingStudent(null);
     showToast(`Student record for ${editingStudent.fullName} (${editingStudent.id}) updated!`, 'success');
   };
 
-  const handleUpdateAchievementSubmit = (e: React.FormEvent) => {
+  const handleUpdateAchievementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAchievement) return;
-    updateAchievement(editingAchievement);
-    refreshData();
+    await updateAchievementApi(editingAchievement);
+    await refreshData();
     setEditingAchievement(null);
     showToast('Achievement record updated!', 'success');
   };
 
-  const handleUpdateEventSubmit = (e: React.FormEvent) => {
+  const handleUpdateEventSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEvent) return;
-    updateEvent(editingEvent);
-    refreshData();
+    await updateEventApi(editingEvent);
+    await refreshData();
     setEditingEvent(null);
     showToast('Upcoming event record updated!', 'success');
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const auth = localStorage.getItem('acd_admin_auth');
-      if (auth !== 'true') {
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.authenticated) {
+          router.push('/admin/login');
+        } else {
+          refreshData();
+        }
+      })
+      .catch(() => {
         router.push('/admin/login');
-        return;
-      }
-    }
-    refreshData();
+      });
   }, [router]);
 
   const handleUpdateCreds = (e: React.FormEvent) => {
@@ -174,24 +183,37 @@ export default function AdminDashboardPage() {
       showToast('Username and password cannot be empty.', 'error');
       return;
     }
-    localStorage.setItem('acd_custom_admin_user', newAdminUser.trim());
-    localStorage.setItem('acd_custom_admin_pass', newAdminPass.trim());
-    showToast('Admin Credentials updated successfully! Next login will require these new credentials.', 'success');
+    showToast('Admin Credentials are configured securely in server environment variables (ADMIN_USERNAME & ADMIN_PASSWORD).', 'info');
     setShowCredsModal(false);
   };
 
-  const refreshData = () => {
-    setStudents(getStudents());
-    setAttendance(getAttendanceRecords());
-    setAchievements(getAchievements());
-    setEvents(getEvents());
-    setMessages(getContactMessages());
-    setRegistrations(getRegistrations());
-    setSheetsConfig(getGoogleSheetsConfig());
+  const refreshData = async () => {
+    try {
+      const [sList, attList, achList, evtList, msgList, regList, cfg] = await Promise.all([
+        fetchStudents(),
+        fetchAttendanceRecords(),
+        fetchAchievements(),
+        fetchEvents(),
+        fetchContactMessages(),
+        fetchRegistrations(),
+        fetchGoogleSheetsConfig(),
+      ]);
+      setStudents(sList);
+      setAttendance(attList);
+      setAchievements(achList);
+      setEvents(evtList);
+      setMessages(msgList);
+      setRegistrations(regList);
+      setSheetsConfig(cfg || getGoogleSheetsConfig());
+    } catch (e) {
+      console.error('Failed refreshing dashboard data:', e);
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('acd_admin_auth');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
     showToast('Logged out of Admin Portal.', 'info');
     router.push('/admin/login');
   };
@@ -212,7 +234,7 @@ export default function AdminDashboardPage() {
   }, [attendanceDate, attendanceBatch, students]);
 
   // Handle Attendance Save
-  const handleSaveAttendance = () => {
+  const handleSaveAttendance = async () => {
     const updates = students
       .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
       .map((s) => ({
@@ -222,16 +244,16 @@ export default function AdminDashboardPage() {
         status: attendanceState[s.id] || 'PRESENT',
       }));
 
-    markAttendance(attendanceDate, updates);
-    refreshData();
+    await markAttendanceApi(attendanceDate, updates);
+    await refreshData();
     showToast(`Attendance records saved for ${attendanceDate}!`, 'success');
   };
 
   // Handle New Student Submit
-  const handleCreateStudent = (e: React.FormEvent) => {
+  const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    saveStudent(newStudentForm);
-    refreshData();
+    await saveStudentApi(newStudentForm);
+    await refreshData();
     setShowAddStudentModal(false);
     showToast(`New student ${newStudentForm.fullName} created!`, 'success');
     setNewStudentForm({
@@ -249,50 +271,50 @@ export default function AdminDashboardPage() {
   };
 
   // Handle Belt Promotion
-  const handlePromoteBelt = (studentId: string, currentBelt: BeltLevel) => {
+  const handlePromoteBelt = async (studentId: string, currentBelt: BeltLevel) => {
     const belts: BeltLevel[] = [
       'White Belt', 'Yellow Belt', 'Green Belt', 'Green-1 Belt', 'Blue Belt', 'Blue-1 Belt', 'Red Belt', 'Red-1 Belt', 'Black Belt'
     ];
     const currentIndex = belts.indexOf(currentBelt);
     if (currentIndex !== -1 && currentIndex < belts.length - 1) {
       const nextBelt = belts[currentIndex + 1];
-      updateStudentBelt(studentId, nextBelt);
-      refreshData();
+      await updateStudentBeltApi(studentId, nextBelt);
+      await refreshData();
       showToast(`Student promoted to ${nextBelt}!`, 'success');
     }
   };
 
   // Confirm and Process Student Delete
-  const confirmDeleteStudent = () => {
+  const confirmDeleteStudent = async () => {
     if (studentToDelete) {
-      deleteStudent(studentToDelete.id);
-      refreshData();
+      await deleteStudentApi(studentToDelete.id);
+      await refreshData();
       showToast(`Student ${studentToDelete.fullName} (${studentToDelete.id}) permanently deleted.`, 'error');
       setStudentToDelete(null);
     }
   };
 
   // Handle Approve Registration
-  const handleApproveReg = (id: string, name: string) => {
-    const student = approveRegistration(id);
-    refreshData();
+  const handleApproveReg = async (id: string, name: string) => {
+    const student = await approveRegistrationApi(id);
+    await refreshData();
     if (student) {
       showToast(`Registration approved! ${name} enrolled as Active Student (${student.id}).`, 'success');
     }
   };
 
   // Handle Reject Registration
-  const handleRejectReg = (id: string) => {
-    rejectRegistration(id);
-    refreshData();
+  const handleRejectReg = async (id: string) => {
+    await rejectRegistrationApi(id);
+    await refreshData();
     showToast('Registration application rejected.', 'error');
   };
 
   // Handle Add Achievement
-  const handleCreateAchievement = (e: React.FormEvent) => {
+  const handleCreateAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
-    addAchievement(newAchievementForm);
-    refreshData();
+    await addAchievementApi(newAchievementForm);
+    await refreshData();
     setShowAddAchievementModal(false);
     showToast('New achievement published to Hall of Fame!', 'success');
     setNewAchievementForm({
@@ -307,19 +329,19 @@ export default function AdminDashboardPage() {
   };
 
   // Handle Delete Achievement
-  const handleDeleteAchievement = (id: string) => {
+  const handleDeleteAchievement = async (id: string) => {
     if (confirm('Delete this achievement record?')) {
-      deleteAchievement(id);
-      refreshData();
+      await deleteAchievementApi(id);
+      await refreshData();
       showToast('Achievement record deleted.', 'info');
     }
   };
 
   // Handle Add Event
-  const handleCreateEvent = (e: React.FormEvent) => {
+  const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    addEvent(newEventForm);
-    refreshData();
+    await addEventApi(newEventForm);
+    await refreshData();
     setShowAddEventModal(false);
     showToast('New upcoming event published to Home Page!', 'success');
     setNewEventForm({
@@ -335,28 +357,29 @@ export default function AdminDashboardPage() {
   };
 
   // Handle Delete Event
-  const handleDeleteEvent = (id: string) => {
+  const handleDeleteEvent = async (id: string) => {
     if (confirm('Delete this upcoming event record?')) {
-      deleteEvent(id);
-      refreshData();
+      await deleteEventApi(id);
+      await refreshData();
       showToast('Upcoming event deleted.', 'info');
     }
   };
 
   // Handle Delete Contact Message
-  const handleDeleteMessage = (id: string) => {
+  const handleDeleteMessage = async (id: string) => {
     if (confirm('Delete this contact enquiry message?')) {
-      deleteContactMessage(id);
-      refreshData();
+      await deleteContactMessageApi(id);
+      await refreshData();
       showToast('Contact enquiry message deleted.', 'info');
     }
   };
 
   // Save Google Sheets Config
-  const handleSaveSheetsConfig = (e: React.FormEvent) => {
+  const handleSaveSheetsConfig = async (e: React.FormEvent) => {
     e.preventDefault();
+    await saveGoogleSheetsConfigApi(sheetsConfig);
     saveGoogleSheetsConfig(sheetsConfig);
-    showToast('Google Sheets API Integration settings updated!', 'success');
+    showToast('Google Sheets API Integration settings updated and saved to server!', 'success');
   };
 
   // Filtered Students List

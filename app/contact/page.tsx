@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { MapPin, Phone, Mail, Clock, Send, CheckCircle2, MessageSquare, AlertCircle, Share2 } from 'lucide-react';
-import { addContactMessage } from '@/lib/sheets';
+import { addContactMessage, addContactMessageApi } from '@/lib/sheets';
 import { useToast } from '@/context/ToastContext';
 import { InstagramIcon, FacebookIcon, YoutubeIcon, WhatsappIcon } from '@/components/SocialIcons';
 
@@ -19,11 +19,12 @@ export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      addContactMessage(formData);
+
+    try {
+      await addContactMessageApi(formData) || addContactMessage(formData);
       setLoading(false);
       setSubmitted(true);
       showToast(`Thank you, ${formData.name}! Your message was sent to ACD Academy.`, 'success');
@@ -34,7 +35,10 @@ export default function ContactPage() {
         subject: 'Admission Enquiry',
         message: '',
       });
-    }, 600);
+    } catch (err) {
+      setLoading(false);
+      showToast('Failed to send message. Please try again.', 'error');
+    }
   };
 
   return (

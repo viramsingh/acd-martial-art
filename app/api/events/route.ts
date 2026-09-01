@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getStudentsDB, saveStudentDB, updateStudentBeltDB, deleteStudentDB } from '@/lib/db';
+import { getEventsDB, addEventDB, updateEventDB, deleteEventDB } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
 export async function GET() {
-  const students = getStudentsDB();
-  return NextResponse.json({ success: true, data: students });
+  const events = getEventsDB();
+  return NextResponse.json({ success: true, data: events });
 }
 
 export async function POST(request: Request) {
@@ -15,8 +15,8 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const newStudent = saveStudentDB(body);
-    return NextResponse.json({ success: true, data: newStudent }, { status: 201 });
+    const created = addEventDB(body);
+    return NextResponse.json({ success: true, data: created }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ success: false, message: 'Invalid payload' }, { status: 400 });
   }
@@ -30,18 +30,13 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    if (body.action === 'UPDATE_BELT') {
-      const updated = updateStudentBeltDB(body.studentId, body.newBelt);
-      if (!updated) {
-        return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
-      }
-      return NextResponse.json({ success: true, data: updated });
+    const updated = updateEventDB(body);
+    if (!updated) {
+      return NextResponse.json({ success: false, message: 'Event not found' }, { status: 404 });
     }
-
-    const updated = saveStudentDB(body);
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
-    return NextResponse.json({ success: false, message: 'Failed to update student' }, { status: 400 });
+    return NextResponse.json({ success: false, message: 'Failed to update event' }, { status: 400 });
   }
 }
 
@@ -55,12 +50,12 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     if (!id) {
-      return NextResponse.json({ success: false, message: 'Student ID required' }, { status: 400 });
+      return NextResponse.json({ success: false, message: 'ID required' }, { status: 400 });
     }
 
-    const deleted = deleteStudentDB(id);
+    const deleted = deleteEventDB(id);
     return NextResponse.json({ success: deleted });
   } catch (error) {
-    return NextResponse.json({ success: false, message: 'Failed to delete student' }, { status: 500 });
+    return NextResponse.json({ success: false, message: 'Failed to delete event' }, { status: 500 });
   }
 }

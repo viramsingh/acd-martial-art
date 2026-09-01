@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Shield, Zap, Award, Users, CheckCircle2, ArrowRight, Calendar, Star, Trophy, Target, Flame, Clock, MapPin } from 'lucide-react';
-import { getEvents, getAchievements } from '@/lib/sheets';
+import { getEvents, getAchievements, fetchEvents, fetchAchievements } from '@/lib/sheets';
 import { UpcomingEvent, Achievement } from '@/types';
 
 export default function HomePage() {
@@ -12,8 +12,13 @@ export default function HomePage() {
   const [recentAchievements, setRecentAchievements] = useState<Achievement[]>([]);
 
   useEffect(() => {
-    setUpcomingEvents(getEvents());
-    setRecentAchievements(getAchievements().slice(0, 3));
+    fetchEvents()
+      .then((data) => setUpcomingEvents(data))
+      .catch(() => setUpcomingEvents(getEvents()));
+
+    fetchAchievements()
+      .then((data) => setRecentAchievements(data.slice(0, 3)))
+      .catch(() => setRecentAchievements(getAchievements().slice(0, 3)));
   }, []);
   const trainingServices = [
     {

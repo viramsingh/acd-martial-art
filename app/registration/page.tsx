@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { UserCheck, Shield, CheckCircle2, AlertCircle, ArrowRight, UserPlus, FileText, School } from 'lucide-react';
-import { submitRegistration } from '@/lib/sheets';
+import { submitRegistration, submitRegistrationApi } from '@/lib/sheets';
 import { BeltLevel, StudentRegistration } from '@/types';
 import { useToast } from '@/context/ToastContext';
 
@@ -26,12 +26,12 @@ export default function StudentRegistrationPage() {
   const [submittedReg, setSubmittedReg] = useState<StudentRegistration | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    setTimeout(() => {
-      const reg = submitRegistration(formData);
+    try {
+      const reg = await submitRegistrationApi(formData) || submitRegistration(formData);
       setLoading(false);
       setSubmittedReg(reg);
       showToast(`Registration submitted for ${formData.fullName}! Reference: ${reg.id}`, 'success');
@@ -49,7 +49,10 @@ export default function StudentRegistrationPage() {
         beltLevel: 'White Belt' as BeltLevel,
         experience: 'Beginner (No prior experience)',
       });
-    }, 600);
+    } catch (err) {
+      setLoading(false);
+      showToast('Failed to submit registration. Please try again.', 'error');
+    }
   };
 
   return (

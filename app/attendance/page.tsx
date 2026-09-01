@@ -3,14 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Calendar, Clock, CheckCircle2, ShieldCheck, Lock, Users, AlertCircle, ArrowRight } from 'lucide-react';
-import { getAttendanceRecords } from '@/lib/sheets';
+import { getAttendanceRecords, fetchAttendanceRecords } from '@/lib/sheets';
 import { AttendanceRecord } from '@/types';
 
 export default function AttendancePublicPage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
 
   useEffect(() => {
-    setRecords(getAttendanceRecords());
+    fetchAttendanceRecords()
+      .then((data) => setRecords(data))
+      .catch(() => setRecords(getAttendanceRecords()));
   }, []);
 
   const totalRecords = records.length;
