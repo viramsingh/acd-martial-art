@@ -191,7 +191,7 @@
     }
   ],
   "sheetsConfig": {
-    "webAppUrl": "",
-    "enabled": false
+    "webAppUrl": "https://script.google.com/macros/s/AKfycbwhME94Ico9R-W4GvHpfGG81yn-ZLOMa7Y8ltV3rg_P_domCTBbBzkOdOMJ9GKHWTZE/exec",
+    "enabled": true
   }
 }
