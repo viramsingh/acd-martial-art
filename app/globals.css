@@ -1,0 +1,66 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+@layer base {
+  :root {
+    --background: #0B0F19;
+    --card-bg: rgba(15, 23, 42, 0.75);
+    --border-color: rgba(255, 255, 255, 0.1);
+    --primary: #DC2626;
+    --gold: #F59E0B;
+  }
+
+  body {
+    background-color: var(--background);
+    color: #F8FAFC;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', sans-serif;
+  }
+}
+
+/* Belt Rank Color Badges */
+.belt-white { background-color: #F8FAFC; color: #0F172A; border: 1px solid #CBD5E1; }
+.belt-yellow { background-color: #FEF08A; color: #854D0E; border: 1px solid #FACC15; }
+.belt-green { background-color: #DCFCE7; color: #166534; border: 1px solid #4ADE80; }
+.belt-blue { background-color: #DBEAFE; color: #1E40AF; border: 1px solid #60A5FA; }
+.belt-red { background-color: #FEE2E2; color: #991B1B; border: 1px solid #F87171; }
+.belt-black-1st { background-color: #0F172A; color: #F59E0B; border: 1px solid #F59E0B; }
+.belt-black-2nd { background-color: #000000; color: #EF4444; border: 2px solid #EF4444; }
+
+/* Custom Glassmorphism UI */
+.glass-card {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-card-hover {
+  transition: all 0.3s ease;
+}
+.glass-card-hover:hover {
+  transform: translateY(-4px);
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 12px 40px 0 rgba(220, 38, 38, 0.15);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0F19;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E293B;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #DC2626;
+}
