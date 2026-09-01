@@ -61,12 +61,12 @@ export async function verifySessionToken(token: string): Promise<{ valid: boolea
   const payload = `${username}:${timestampStr}`;
   const key = await getCryptoKey();
 
-  // Convert hex signature back to ArrayBuffer
+  // Convert hex signature back to Uint8Array
   const match = signatureHex.match(/.{1,2}/g);
   if (!match) return { valid: false };
-  const sigBuffer = new Uint8Array(match.map((byte) => parseInt(byte, 16))).buffer as ArrayBuffer;
+  const sigBytes = new Uint8Array(match.map((byte) => parseInt(byte, 16)));
 
-  const isValid = await crypto.subtle.verify('HMAC', key, sigBuffer, stringToBuffer(payload));
+  const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, stringToBuffer(payload));
 
   if (isValid) {
     return { valid: true, username };
