@@ -117,17 +117,24 @@ function setItem<T>(key: string, value: T): void {
 // STUDENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchStudents(): Promise<Student[]> {
+  const cached = getStudents();
   try {
     const res = await fetch('/api/students');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      setItem(KEYS.STUDENTS, json.data);
-      return json.data;
+      if (json.data.length > 0) {
+        setItem(KEYS.STUDENTS, json.data);
+        return json.data;
+      } else if (cached.length > 0) {
+        return cached;
+      }
+      setItem(KEYS.STUDENTS, []);
+      return [];
     }
   } catch (e) {
     console.warn('API fetch failed, falling back to cached local storage:', e);
   }
-  return getStudents();
+  return cached;
 }
 
 export function getStudents(): Student[] {
@@ -227,18 +234,25 @@ export function deleteStudent(studentId: string): boolean {
 // ATTENDANCE API CLIENT
 // -------------------------------------------------------------
 export async function fetchAttendanceRecords(date?: string): Promise<AttendanceRecord[]> {
+  const cached = getAttendanceRecords(date);
   try {
     const url = date ? `/api/attendance?date=${encodeURIComponent(date)}` : '/api/attendance';
     const res = await fetch(url);
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      setItem(KEYS.ATTENDANCE, json.data);
-      return json.data;
+      if (json.data.length > 0) {
+        setItem(KEYS.ATTENDANCE, json.data);
+        return json.data;
+      } else if (cached.length > 0) {
+        return cached;
+      }
+      setItem(KEYS.ATTENDANCE, []);
+      return [];
     }
   } catch (e) {
     console.warn('API attendance fetch error:', e);
   }
-  return getAttendanceRecords(date);
+  return cached;
 }
 
 export function getAttendanceRecords(date?: string): AttendanceRecord[] {
@@ -274,17 +288,24 @@ export function markAttendance(date: string, updates: any[]): AttendanceRecord[]
 // ACHIEVEMENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchAchievements(): Promise<Achievement[]> {
+  const cached = getAchievements();
   try {
     const res = await fetch('/api/achievements');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      setItem(KEYS.ACHIEVEMENTS, json.data);
-      return json.data;
+      if (json.data.length > 0) {
+        setItem(KEYS.ACHIEVEMENTS, json.data);
+        return json.data;
+      } else if (cached.length > 0) {
+        return cached;
+      }
+      setItem(KEYS.ACHIEVEMENTS, []);
+      return [];
     }
   } catch (e) {
     console.warn('API achievements fetch error:', e);
   }
-  return getAchievements();
+  return cached;
 }
 
 export function getAchievements(): Achievement[] {
@@ -377,17 +398,24 @@ export function deleteAchievement(id: string): boolean {
 // UPCOMING EVENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchEvents(): Promise<UpcomingEvent[]> {
+  const cached = getEvents();
   try {
     const res = await fetch('/api/events');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      setItem(KEYS.EVENTS, json.data);
-      return json.data;
+      if (json.data.length > 0) {
+        setItem(KEYS.EVENTS, json.data);
+        return json.data;
+      } else if (cached.length > 0) {
+        return cached;
+      }
+      setItem(KEYS.EVENTS, []);
+      return [];
     }
   } catch (e) {
     console.warn('API events fetch error:', e);
   }
-  return getEvents();
+  return cached;
 }
 
 export function getEvents(): UpcomingEvent[] {

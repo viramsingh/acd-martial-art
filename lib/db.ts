@@ -117,8 +117,14 @@ export async function syncFromGoogleSheets(): Promise<boolean> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'GET_ALL_DATA' })
     });
-    const json = await res.json();
-    if (json.status === 'success' && json.data) {
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return false; // Not a valid JSON response from Google Sheets URL
+    }
+    if (json && json.status === 'success' && json.data) {
       const data = json.data;
       if (Array.isArray(data.students) && data.students.length > 0) {
         db.students = data.students.map((s: any) => ({
