@@ -1,8 +1,47 @@
 {
-  "students": [],
+  "students": [
+    {
+      "fullName": "kamal",
+      "dob": "2026-09-17",
+      "gender": "Male",
+      "phone": "32323",
+      "email": "",
+      "address": "321",
+      "guardianName": "new",
+      "emergencyPhone": "",
+      "batch": "Evening 5:00 To 6:00",
+      "beltLevel": "White Belt",
+      "id": "ACD-2026-002",
+      "status": "ACTIVE",
+      "joiningDate": "2026-09-01"
+    }
+  ],
   "attendance": [],
   "achievements": [],
-  "events": [],
+  "events": [
+    {
+      "title": "new",
+      "category": "District Championship",
+      "date": "2026-09-16",
+      "time": "new",
+      "location": "new",
+      "desc": "ew",
+      "image": "/assets/IMG_4159.PNG",
+      "badgeColor": "bg-red-600 text-white",
+      "id": "EVT-002"
+    },
+    {
+      "title": "new",
+      "category": "District Championship",
+      "date": "2026-09-16",
+      "time": "new",
+      "location": "new",
+      "desc": "ew",
+      "image": "/assets/IMG_4159.PNG",
+      "badgeColor": "bg-red-600 text-white",
+      "id": "EVT-001"
+    }
+  ],
   "messages": [],
   "registrations": [],
   "sheetsConfig": {
