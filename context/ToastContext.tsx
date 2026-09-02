@@ -16,6 +16,7 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 export function ToastProvider({ children }: { children: ReactNode }) {
 
   const showToast = (message: string, type: ToastType = 'success') => {
+    toast.dismiss();
     // Audio feedback trigger
     if (type === 'success') {
       playSuccessSound();
@@ -57,6 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
       <ToastContainer
+        limit={1}
         position="top-right"
         autoClose={3500}
         hideProgressBar={false}

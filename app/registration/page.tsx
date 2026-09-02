@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { UserCheck, Shield, CheckCircle2, AlertCircle, ArrowRight, UserPlus, FileText, School } from 'lucide-react';
+import { UserCheck, Shield, CheckCircle2, AlertCircle, ArrowRight, UserPlus, FileText, School, Loader2 } from 'lucide-react';
 import { submitRegistration, submitRegistrationApi } from '@/lib/sheets';
 import { BeltLevel, StudentRegistration } from '@/types';
 import { useToast } from '@/context/ToastContext';
@@ -317,10 +317,19 @@ export default function StudentRegistrationPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 sm:py-3.5 px-6 rounded-xl shadow-xl transition-all whitespace-nowrap inline-flex items-center justify-center gap-2 text-xs sm:text-sm uppercase tracking-wider"
+                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 sm:py-3.5 px-6 rounded-xl shadow-xl transition-all whitespace-nowrap inline-flex items-center justify-center gap-2 text-xs sm:text-sm uppercase tracking-wider disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
-                {loading ? 'Processing Registration...' : 'Complete & Submit Registration'}
-                <ArrowRight className="w-4 h-4" />
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Processing Registration...
+                  </>
+                ) : (
+                  <>
+                    Complete & Submit Registration
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
 
             </form>

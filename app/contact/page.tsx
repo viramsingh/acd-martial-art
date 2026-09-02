@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { MapPin, Phone, Mail, Clock, Send, CheckCircle2, MessageSquare, AlertCircle, Share2 } from 'lucide-react';
+import { MapPin, Phone, Mail, Clock, Send, CheckCircle2, MessageSquare, AlertCircle, Share2, Loader2 } from 'lucide-react';
 import { addContactMessage, addContactMessageApi } from '@/lib/sheets';
 import { useToast } from '@/context/ToastContext';
 import { InstagramIcon, FacebookIcon, YoutubeIcon, WhatsappIcon } from '@/components/SocialIcons';
@@ -257,10 +257,19 @@ export default function ContactPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider"
+                className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
-                {loading ? 'Submitting Message...' : 'Submit Contact Enquiry'}
-                <Send className="w-4 h-4" />
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Submitting Message...
+                  </>
+                ) : (
+                  <>
+                    Submit Contact Enquiry
+                    <Send className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
           )}

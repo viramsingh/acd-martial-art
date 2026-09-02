@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
   Users, Calendar, Trophy, Mail, UserCheck, Search, Filter, Plus, Edit, Trash2, Shield, LogOut,
-  CheckCircle2, XCircle, Clock, Save, RefreshCw, Award, Check, Settings, FileSpreadsheet, Sparkles, AlertTriangle, Key, Eye, EyeOff
+  CheckCircle2, XCircle, Clock, Save, RefreshCw, Award, Check, Settings, FileSpreadsheet, Sparkles, AlertTriangle, Key, Eye, EyeOff, Loader2
 } from 'lucide-react';
 import {
   getStudents, saveStudent, updateStudentBelt, deleteStudent,
@@ -134,32 +134,57 @@ export default function AdminDashboardPage() {
   const [newAdminPass, setNewAdminPass] = useState('');
   const [showPassText, setShowPassText] = useState(false);
 
+  // Loading States for All Interactive Buttons
+  const [isSavingSheets, setIsSavingSheets] = useState(false);
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
+  const [isSubmittingStudent, setIsSubmittingStudent] = useState(false);
+  const [isSubmittingAchievement, setIsSubmittingAchievement] = useState(false);
+  const [isSubmittingEvent, setIsSubmittingEvent] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
   // Edit Handlers
   const handleUpdateStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
-    await saveStudentApi(editingStudent);
-    await refreshData();
-    setEditingStudent(null);
-    showToast(`Student record for ${editingStudent.fullName} (${editingStudent.id}) updated!`, 'success');
+    setIsSubmittingStudent(true);
+    try {
+      await saveStudentApi(editingStudent);
+      await refreshData();
+      setEditingStudent(null);
+      showToast(`Student record for ${editingStudent.fullName} (${editingStudent.id}) updated!`, 'success');
+    } finally {
+      setIsSubmittingStudent(false);
+    }
   };
 
   const handleUpdateAchievementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAchievement) return;
-    await updateAchievementApi(editingAchievement);
-    await refreshData();
-    setEditingAchievement(null);
-    showToast('Achievement record updated!', 'success');
+    setIsSubmittingAchievement(true);
+    try {
+      await updateAchievementApi(editingAchievement);
+      await refreshData();
+      setEditingAchievement(null);
+      showToast('Achievement record updated!', 'success');
+    } finally {
+      setIsSubmittingAchievement(false);
+    }
   };
 
   const handleUpdateEventSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEvent) return;
-    await updateEventApi(editingEvent);
-    await refreshData();
-    setEditingEvent(null);
-    showToast('Upcoming event record updated!', 'success');
+    setIsSubmittingEvent(true);
+    try {
+      await updateEventApi(editingEvent);
+      await refreshData();
+      setEditingEvent(null);
+      showToast('Upcoming event record updated!', 'success');
+    } finally {
+      setIsSubmittingEvent(false);
+    }
   };
 
   useEffect(() => {
@@ -188,6 +213,7 @@ export default function AdminDashboardPage() {
   };
 
   const refreshData = async () => {
+    setIsRefreshing(true);
     try {
       const [sList, attList, achList, evtList, msgList, regList, cfg] = await Promise.all([
         fetchStudents(),
@@ -207,10 +233,13 @@ export default function AdminDashboardPage() {
       setSheetsConfig(cfg || getGoogleSheetsConfig());
     } catch (e) {
       console.error('Failed refreshing dashboard data:', e);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch {}
@@ -235,39 +264,49 @@ export default function AdminDashboardPage() {
 
   // Handle Attendance Save
   const handleSaveAttendance = async () => {
-    const updates = students
-      .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
-      .map((s) => ({
-        studentId: s.id,
-        studentName: s.fullName,
-        batch: s.batch,
-        status: attendanceState[s.id] || 'PRESENT',
-      }));
+    setIsSavingAttendance(true);
+    try {
+      const updates = students
+        .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
+        .map((s) => ({
+          studentId: s.id,
+          studentName: s.fullName,
+          batch: s.batch,
+          status: attendanceState[s.id] || 'PRESENT',
+        }));
 
-    await markAttendanceApi(attendanceDate, updates);
-    await refreshData();
-    showToast(`Attendance records saved for ${attendanceDate}!`, 'success');
+      await markAttendanceApi(attendanceDate, updates);
+      await refreshData();
+      showToast(`Attendance records saved for ${attendanceDate}!`, 'success');
+    } finally {
+      setIsSavingAttendance(false);
+    }
   };
 
   // Handle New Student Submit
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveStudentApi(newStudentForm);
-    await refreshData();
-    setShowAddStudentModal(false);
-    showToast(`New student ${newStudentForm.fullName} created!`, 'success');
-    setNewStudentForm({
-      fullName: '',
-      dob: '',
-      gender: 'Male',
-      phone: '',
-      email: '',
-      address: '',
-      guardianName: '',
-      emergencyPhone: '',
-      batch: 'Evening 5:00 To 6:00',
-      beltLevel: 'White Belt',
-    });
+    setIsSubmittingStudent(true);
+    try {
+      await saveStudentApi(newStudentForm);
+      await refreshData();
+      setShowAddStudentModal(false);
+      showToast(`New student ${newStudentForm.fullName} created!`, 'success');
+      setNewStudentForm({
+        fullName: '',
+        dob: '',
+        gender: 'Male',
+        phone: '',
+        email: '',
+        address: '',
+        guardianName: '',
+        emergencyPhone: '',
+        batch: 'Evening 5:00 To 6:00',
+        beltLevel: 'White Belt',
+      });
+    } finally {
+      setIsSubmittingStudent(false);
+    }
   };
 
   // Handle Belt Promotion
@@ -278,108 +317,158 @@ export default function AdminDashboardPage() {
     const currentIndex = belts.indexOf(currentBelt);
     if (currentIndex !== -1 && currentIndex < belts.length - 1) {
       const nextBelt = belts[currentIndex + 1];
-      await updateStudentBeltApi(studentId, nextBelt);
-      await refreshData();
-      showToast(`Student promoted to ${nextBelt}!`, 'success');
+      setActionLoadingId(studentId);
+      try {
+        await updateStudentBeltApi(studentId, nextBelt);
+        await refreshData();
+        showToast(`Student promoted to ${nextBelt}!`, 'success');
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
 
   // Confirm and Process Student Delete
   const confirmDeleteStudent = async () => {
     if (studentToDelete) {
-      await deleteStudentApi(studentToDelete.id);
-      await refreshData();
-      showToast(`Student ${studentToDelete.fullName} (${studentToDelete.id}) permanently deleted.`, 'error');
-      setStudentToDelete(null);
+      setActionLoadingId(studentToDelete.id);
+      try {
+        await deleteStudentApi(studentToDelete.id);
+        await refreshData();
+        showToast(`Student ${studentToDelete.fullName} (${studentToDelete.id}) permanently deleted.`, 'error');
+        setStudentToDelete(null);
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
 
   // Handle Approve Registration
   const handleApproveReg = async (id: string, name: string) => {
-    const student = await approveRegistrationApi(id);
-    await refreshData();
-    if (student) {
-      showToast(`Registration approved! ${name} enrolled as Active Student (${student.id}).`, 'success');
+    setActionLoadingId(id);
+    try {
+      const student = await approveRegistrationApi(id);
+      await refreshData();
+      if (student) {
+        showToast(`Registration approved! ${name} enrolled as Active Student (${student.id}).`, 'success');
+      }
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
   // Handle Reject Registration
   const handleRejectReg = async (id: string) => {
-    await rejectRegistrationApi(id);
-    await refreshData();
-    showToast('Registration application rejected.', 'error');
+    setActionLoadingId(id);
+    try {
+      await rejectRegistrationApi(id);
+      await refreshData();
+      showToast('Registration application rejected.', 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   // Handle Add Achievement
   const handleCreateAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addAchievementApi(newAchievementForm);
-    await refreshData();
-    setShowAddAchievementModal(false);
-    showToast('New achievement published to Hall of Fame!', 'success');
-    setNewAchievementForm({
-      title: '',
-      studentName: '',
-      event: '',
-      position: '',
-      date: '',
-      imageUrl: '',
-      description: '',
-    });
+    setIsSubmittingAchievement(true);
+    try {
+      await addAchievementApi(newAchievementForm);
+      await refreshData();
+      setShowAddAchievementModal(false);
+      showToast('New achievement published to Hall of Fame!', 'success');
+      setNewAchievementForm({
+        title: '',
+        studentName: '',
+        event: '',
+        position: '',
+        date: '',
+        imageUrl: '',
+        description: '',
+      });
+    } finally {
+      setIsSubmittingAchievement(false);
+    }
   };
 
   // Handle Delete Achievement
   const handleDeleteAchievement = async (id: string) => {
     if (confirm('Delete this achievement record?')) {
-      await deleteAchievementApi(id);
-      await refreshData();
-      showToast('Achievement record deleted.', 'info');
+      setActionLoadingId(id);
+      try {
+        await deleteAchievementApi(id);
+        await refreshData();
+        showToast('Achievement record deleted.', 'info');
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
 
   // Handle Add Event
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    await addEventApi(newEventForm);
-    await refreshData();
-    setShowAddEventModal(false);
-    showToast('New upcoming event published to Home Page!', 'success');
-    setNewEventForm({
-      title: '',
-      category: 'Special Workshop',
-      date: '',
-      time: '',
-      location: '',
-      desc: '',
-      image: '',
-      badgeColor: 'bg-red-600 text-white',
-    });
+    setIsSubmittingEvent(true);
+    try {
+      await addEventApi(newEventForm);
+      await refreshData();
+      setShowAddEventModal(false);
+      showToast('New upcoming event published to Home Page!', 'success');
+      setNewEventForm({
+        title: '',
+        category: 'Special Workshop',
+        date: '',
+        time: '',
+        location: '',
+        desc: '',
+        image: '',
+        badgeColor: 'bg-red-600 text-white',
+      });
+    } finally {
+      setIsSubmittingEvent(false);
+    }
   };
 
   // Handle Delete Event
   const handleDeleteEvent = async (id: string) => {
     if (confirm('Delete this upcoming event record?')) {
-      await deleteEventApi(id);
-      await refreshData();
-      showToast('Upcoming event deleted.', 'info');
+      setActionLoadingId(id);
+      try {
+        await deleteEventApi(id);
+        await refreshData();
+        showToast('Upcoming event deleted.', 'info');
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
 
   // Handle Delete Contact Message
   const handleDeleteMessage = async (id: string) => {
     if (confirm('Delete this contact enquiry message?')) {
-      await deleteContactMessageApi(id);
-      await refreshData();
-      showToast('Contact enquiry message deleted.', 'info');
+      setActionLoadingId(id);
+      try {
+        await deleteContactMessageApi(id);
+        await refreshData();
+        showToast('Contact enquiry message deleted.', 'info');
+      } finally {
+        setActionLoadingId(null);
+      }
     }
   };
 
   // Save Google Sheets Config
   const handleSaveSheetsConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    await saveGoogleSheetsConfigApi(sheetsConfig);
-    saveGoogleSheetsConfig(sheetsConfig);
-    showToast('Google Sheets API Integration settings updated and saved to server!', 'success');
+    setIsSavingSheets(true);
+    try {
+      await saveGoogleSheetsConfigApi(sheetsConfig);
+      saveGoogleSheetsConfig(sheetsConfig);
+      showToast('Google Sheets API Integration settings updated and saved to server!', 'success');
+    } finally {
+      setIsSavingSheets(false);
+    }
   };
 
   // Filtered Students List
@@ -476,16 +565,18 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => { refreshData(); showToast('Data refreshed!', 'info'); }}
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors"
+              disabled={isRefreshing}
+              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               title="Refresh Data"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
             </button>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-red-950 hover:text-red-400 hover:border-red-800 text-slate-300 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-700 transition-all"
+              disabled={isLoggingOut}
+              className="flex items-center gap-2 bg-slate-800 hover:bg-red-950 hover:text-red-400 hover:border-red-800 text-slate-300 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              <LogOut className="w-4 h-4" /> Log Out
+              {isLoggingOut ? <Loader2 className="w-4 h-4 animate-spin text-red-400" /> : <LogOut className="w-4 h-4" />} Log Out
             </button>
           </div>
         </div>
@@ -890,9 +981,19 @@ export default function AdminDashboardPage() {
 
               <button
                 onClick={handleSaveAttendance}
-                className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 uppercase tracking-wider shrink-0"
+                disabled={isSavingAttendance}
+                className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:opacity-60 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 uppercase tracking-wider shrink-0 cursor-pointer disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4" /> Save Attendance Records
+                {isSavingAttendance ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Saving Attendance...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" /> Save Attendance Records
+                  </>
+                )}
               </button>
             </div>
 
@@ -1333,9 +1434,19 @@ export default function AdminDashboardPage() {
 
               <button
                 type="submit"
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg flex items-center gap-2"
+                disabled={isSavingSheets}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4" /> Save Integration Settings
+                {isSavingSheets ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Connecting & Saving Settings...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" /> Save Integration Settings
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -1393,9 +1504,19 @@ export default function AdminDashboardPage() {
               <button
                 type="button"
                 onClick={confirmDeleteStudent}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg transition-all flex items-center gap-1.5 uppercase tracking-wider"
+                disabled={actionLoadingId === studentToDelete.id}
+                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg transition-all flex items-center gap-1.5 uppercase tracking-wider cursor-pointer disabled:cursor-not-allowed"
               >
-                <Trash2 className="w-4 h-4" /> Yes, Delete Student
+                {actionLoadingId === studentToDelete.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" /> Yes, Delete Student
+                  </>
+                )}
               </button>
             </div>
 
@@ -1503,9 +1624,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-red-600 text-white font-bold text-xs px-5 py-2 rounded-xl"
+                  disabled={isSubmittingStudent}
+                  className="bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Create Student
+                  {isSubmittingStudent ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      Creating Student...
+                    </>
+                  ) : (
+                    'Create Student'
+                  )}
                 </button>
               </div>
             </form>
@@ -1582,9 +1711,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-amber-500 text-slate-950 font-bold text-xs px-5 py-2 rounded-xl"
+                  disabled={isSubmittingAchievement}
+                  className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Publish Achievement
+                  {isSubmittingAchievement ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                      Publishing...
+                    </>
+                  ) : (
+                    'Publish Achievement'
+                  )}
                 </button>
               </div>
             </form>
@@ -1677,9 +1814,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-5 py-2 rounded-xl"
+                  disabled={isSubmittingEvent}
+                  className="bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Publish Event
+                  {isSubmittingEvent ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      Publishing...
+                    </>
+                  ) : (
+                    'Publish Event'
+                  )}
                 </button>
               </div>
             </form>
@@ -1877,9 +2022,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-5 py-2 rounded-xl shadow"
+                  disabled={isSubmittingStudent}
+                  className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl shadow flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Save Changes
+                  {isSubmittingStudent ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                      Saving Changes...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </button>
               </div>
             </form>
@@ -1972,9 +2125,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-5 py-2 rounded-xl shadow"
+                  disabled={isSubmittingAchievement}
+                  className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl shadow flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Save Changes
+                  {isSubmittingAchievement ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                      Saving Changes...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
                 </button>
               </div>
             </form>
@@ -2086,9 +2247,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-5 py-2 rounded-xl shadow"
+                  disabled={isSubmittingEvent}
+                  className="bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Save Event Changes
+                  {isSubmittingEvent ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      Saving Event Changes...
+                    </>
+                  ) : (
+                    'Save Event Changes'
+                  )}
                 </button>
               </div>
             </form>

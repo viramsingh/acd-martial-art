@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { User, Key, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { User, Key, ArrowRight, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 
 export default function AdminLoginPage() {
@@ -124,10 +124,19 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
           >
-            {loading ? 'Authenticating...' : 'Log In To Admin Dashboard'}
-            <ArrowRight className="w-4 h-4" />
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                Authenticating...
+              </>
+            ) : (
+              <>
+                Log In To Admin Dashboard
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
         </form>
 
