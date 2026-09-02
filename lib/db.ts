@@ -105,6 +105,79 @@ async function syncToGoogleSheets(action: string, payload: any) {
   }
 }
 
+// Async sync FROM Google Sheets to pull all rows live into server DB
+export async function syncFromGoogleSheets(): Promise<boolean> {
+  const db = getDatabase();
+  const webUrl = db.sheetsConfig?.webAppUrl || process.env.GOOGLE_SHEETS_WEB_APP_URL;
+  if (!webUrl || !db.sheetsConfig?.enabled) return false;
+
+  try {
+    const res = await fetch(webUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'GET_ALL_DATA' })
+    });
+    const json = await res.json();
+    if (json.status === 'success' && json.data) {
+      const data = json.data;
+      if (Array.isArray(data.students) && data.students.length > 0) {
+        db.students = data.students.map((s: any) => ({
+          id: s.id || `ACD-2026-${Math.floor(Math.random() * 1000)}`,
+          fullName: s.fullName || s['Full Name'] || 'Student',
+          dob: s.dob || s.DOB || '',
+          gender: s.gender || s.Gender || 'Male',
+          phone: s.phone || s.Phone || '',
+          email: s.email || s.Email || '',
+          address: s.address || s.Address || '',
+          guardianName: s.guardianName || s['Guardian Name'] || '',
+          emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
+          schoolName: s.schoolName || s['School Name'] || '',
+          batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
+          beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
+          status: s.status || s.Status || 'ACTIVE',
+          joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
+        }));
+      }
+      if (Array.isArray(data.registrations) && data.registrations.length > 0) {
+        db.registrations = data.registrations.map((r: any) => ({
+          id: r.id || `REG-2026-${Math.floor(Math.random() * 1000)}`,
+          fullName: r.fullName || r['Full Name'] || '',
+          dob: r.dob || '',
+          gender: r.gender || 'Male',
+          phone: r.phone || '',
+          email: r.email || '',
+          address: r.address || '',
+          guardianName: r.guardianName || '',
+          emergencyPhone: r.emergencyPhone || '',
+          schoolName: r.schoolName || '',
+          batch: r.batch || 'Evening 5:00 To 6:00',
+          beltLevel: r.beltLevel || 'White Belt',
+          experience: r.experience || 'Beginner',
+          status: r.status || 'PENDING',
+          submittedAt: r.submittedAt || new Date().toLocaleString()
+        }));
+      }
+      if (Array.isArray(data.attendance) && data.attendance.length > 0) {
+        db.attendance = data.attendance;
+      }
+      if (Array.isArray(data.achievements) && data.achievements.length > 0) {
+        db.achievements = data.achievements;
+      }
+      if (Array.isArray(data.events) && data.events.length > 0) {
+        db.events = data.events;
+      }
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        db.messages = data.messages;
+      }
+      saveDatabase(db);
+      return true;
+    }
+  } catch (err) {
+    console.warn('Google Sheets pull sync notice:', err);
+  }
+  return false;
+}
+
 // -------------------------------------------------------------
 // STUDENTS DB METHODS
 // -------------------------------------------------------------

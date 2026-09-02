@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getStudentsDB, saveStudentDB, updateStudentBeltDB, deleteStudentDB } from '@/lib/db';
+import { getStudentsDB, saveStudentDB, updateStudentBeltDB, deleteStudentDB, syncFromGoogleSheets } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
 export async function GET() {
+  await syncFromGoogleSheets();
   const students = getStudentsDB();
   return NextResponse.json({ success: true, data: students });
 }
