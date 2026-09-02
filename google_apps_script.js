@@ -1,236 +1,164 @@
 /**
- * ACD MARTIAL ARTS - GOOGLE APPS SCRIPT DATABASE SYNC ENGINE
- * =========================================================
- * Copy and paste this script into your Google Sheet's Apps Script editor:
- * Extensions -> Apps Script -> Paste this code -> Deploy -> Web App.
- *
- * SETTINGS ON DEPLOYMENT:
- * - Execute as: Me
- * - Who has access: Anyone
+ * ACD Martial Arts - Official Google Apps Script Integration (Code.gs)
+ * 
+ * INSTRUCTIONS:
+ * 1. Open your Google Sheet -> Extensions -> Apps Script.
+ * 2. Delete all existing code in Code.gs and replace it completely with this code.
+ * 3. Click Save (Disk Icon).
+ * 4. Click Deploy -> New deployment.
+ * 5. Select Type: "Web app"
+ * 6. Set Description: "ACD Martial Arts Integration API v2"
+ * 7. Set Execute as: "Me"
+ * 8. Set Who has access: "Anyone"  <-- CRITICAL for Vercel/Website connectivity!
+ * 9. Click Deploy and copy the Web App URL into your Admin Dashboard Google Sheets tab!
  */
 
 function doGet(e) {
-  try {
-    var data = getAllSheetsData();
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      data: data
-    })).setMimeType(ContentService.MimeType.JSON);
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false,
-      error: error.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
-  }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  autoSetupSheets(ss);
+  var data = getAllData(ss);
+  return ContentService.createTextOutput(JSON.stringify({ status: "success", data: data }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
   try {
-    var requestData = JSON.parse(e.postData.contents);
-    var action = requestData.action;
-    var payload = requestData.payload;
+    var data = JSON.parse(e.postData.contents);
+    var action = data.action;
+    var payload = data.payload || {};
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    if (action === 'GET_ALL_DATA' || action === 'READ_ALL') {
-      var allData = getAllSheetsData();
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        data: allData
-      })).setMimeType(ContentService.MimeType.JSON);
+    autoSetupSheets(ss);
+
+    // 1. FETCH ALL DATA
+    if (action === "GET_ALL_DATA" || action === "READ_ALL") {
+      var allData = getAllData(ss);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", data: allData }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // -------------------------------------------------------------
-    // STUDENTS ACTIONS
-    // -------------------------------------------------------------
-    if (action === 'ADD_STUDENT' || action === 'UPDATE_STUDENT') {
-      var sheet = getOrCreateSheet(ss, 'Students', [
-        'ID', 'Full Name', 'DOB', 'Gender', 'Phone', 'Email', 'Address',
-        'Guardian Name', 'Emergency Phone', 'School Name', 'Batch', 'Belt Level', 'Joining Date', 'Status'
+    // 2. REGISTRATIONS
+    if (action === "SUBMIT_REGISTRATION") {
+      var sheet = ss.getSheetByName("Registrations");
+      sheet.appendRow([
+        payload.id, payload.fullName, payload.dob, payload.gender,
+        payload.phone, payload.email || "", payload.guardianName,
+        payload.emergencyPhone || "", payload.schoolName || "",
+        payload.batch, payload.beltLevel, payload.status || "PENDING", payload.submittedAt || new Date().toLocaleString()
       ]);
-      var row = [
-        payload.id || '',
-        payload.fullName || '',
-        payload.dob || '',
-        payload.gender || '',
-        payload.phone || '',
-        payload.email || '',
-        payload.address || '',
-        payload.guardianName || '',
-        payload.emergencyPhone || '',
-        payload.schoolName || '',
-        payload.batch || '',
-        payload.beltLevel || '',
-        payload.joiningDate || '',
-        payload.status || 'ACTIVE'
+    }
+
+    // 3. STUDENTS
+    if (action === "ADD_STUDENT" || action === "UPDATE_STUDENT") {
+      var sheet = ss.getSheetByName("Students");
+      var row = findRowById(sheet, payload.id);
+      var values = [
+        payload.id, payload.fullName, payload.dob || "", payload.gender || "",
+        payload.phone || "", payload.email || "", payload.address || "",
+        payload.guardianName || "", payload.emergencyPhone || "",
+        payload.schoolName || "", payload.batch || "", payload.beltLevel || "",
+        payload.status || "ACTIVE", payload.joiningDate || new Date().toISOString().split('T')[0]
       ];
-      upsertRowById(sheet, 1, payload.id, row);
-    } 
-    else if (action === 'DELETE_STUDENT') {
-      var studentId = payload.studentId || payload.id;
-      var sheet = ss.getSheetByName('Students');
-      if (sheet) {
-        deleteRowById(sheet, 1, studentId);
-      }
-    }
-    else if (action === 'UPDATE_BELT') {
-      var sheet = ss.getSheetByName('Students');
-      if (sheet) {
-        updateCellById(sheet, 1, payload.studentId, 12, payload.newBelt);
+      if (row > 0) {
+        sheet.getRange(row, 1, 1, values.length).setValues([values]);
+      } else {
+        sheet.appendRow(values);
       }
     }
 
-    // -------------------------------------------------------------
-    // REGISTRATIONS ACTIONS
-    // -------------------------------------------------------------
-    else if (action === 'SUBMIT_REGISTRATION' || action === 'APPROVE_REGISTRATION') {
-      var sheet = getOrCreateSheet(ss, 'Registrations', [
-        'ID', 'Full Name', 'DOB', 'Gender', 'Phone', 'Email', 'Address',
-        'Guardian Name', 'Emergency Phone', 'School Name', 'Batch', 'Belt Level', 'Experience', 'Status', 'Submitted At'
-      ]);
-      var row = [
-        payload.id || '',
-        payload.fullName || '',
-        payload.dob || '',
-        payload.gender || '',
-        payload.phone || '',
-        payload.email || '',
-        payload.address || '',
-        payload.guardianName || '',
-        payload.emergencyPhone || '',
-        payload.schoolName || '',
-        payload.batch || '',
-        payload.beltLevel || '',
-        payload.experience || '',
-        payload.status || 'PENDING',
-        payload.submittedAt || new Date().toLocaleString()
-      ];
-      upsertRowById(sheet, 1, payload.id, row);
-    }
-    else if (action === 'DELETE_REGISTRATION') {
-      var regId = payload.id || payload.registrationId;
-      var sheet = ss.getSheetByName('Registrations');
-      if (sheet) {
-        deleteRowById(sheet, 1, regId);
+    if (action === "UPDATE_BELT") {
+      var sheet = ss.getSheetByName("Students");
+      var row = findRowById(sheet, payload.studentId);
+      if (row > 0) {
+        sheet.getRange(row, 12).setValue(payload.newBelt);
       }
     }
 
-    // -------------------------------------------------------------
-    // ATTENDANCE ACTIONS
-    // -------------------------------------------------------------
-    else if (action === 'MARK_ATTENDANCE') {
-      var sheet = getOrCreateSheet(ss, 'Attendance', [
-        'ID', 'Date', 'Student ID', 'Student Name', 'Batch', 'Status', 'Check-In Time'
-      ]);
+    if (action === "DELETE_STUDENT") {
+      var sheet = ss.getSheetByName("Students");
+      deleteRowById(sheet, payload.studentId);
+    }
+
+    // 4. ATTENDANCE
+    if (action === "MARK_ATTENDANCE") {
+      var sheet = ss.getSheetByName("Attendance");
       var date = payload.date;
       var updates = payload.updates || [];
       for (var i = 0; i < updates.length; i++) {
         var u = updates[i];
-        var attId = 'ATT-' + date + '-' + u.studentId;
-        var row = [
-          attId,
+        sheet.appendRow([
+          "ATT-" + Date.now() + "-" + i,
           date,
           u.studentId,
-          u.studentName || '',
-          u.batch || '',
-          u.status || 'ABSENT',
-          u.checkInTime || (u.status === 'PRESENT' ? new Date().toLocaleTimeString() : '')
-        ];
-        upsertRowById(sheet, 1, attId, row);
+          u.studentName,
+          u.batch,
+          u.status,
+          u.status === "PRESENT" ? new Date().toLocaleTimeString() : "",
+          u.remarks || ""
+        ]);
       }
     }
 
-    // -------------------------------------------------------------
-    // ACHIEVEMENTS ACTIONS
-    // -------------------------------------------------------------
-    else if (action === 'ADD_ACHIEVEMENT' || action === 'UPDATE_ACHIEVEMENT') {
-      var sheet = getOrCreateSheet(ss, 'Achievements', [
-        'ID', 'Title', 'Student Name', 'Event', 'Position', 'Date', 'Image URL', 'Description'
-      ]);
-      var row = [
-        payload.id || '',
-        payload.title || '',
-        payload.studentName || '',
-        payload.event || '',
-        payload.position || '',
-        payload.date || '',
-        payload.imageUrl || '',
-        payload.description || ''
+    // 5. ACHIEVEMENTS
+    if (action === "ADD_ACHIEVEMENT" || action === "UPDATE_ACHIEVEMENT") {
+      var sheet = ss.getSheetByName("Achievements");
+      var row = findRowById(sheet, payload.id);
+      var values = [
+        payload.id, payload.title, payload.studentName, payload.event || "",
+        payload.position || "", payload.date || "", payload.description || "", payload.imageUrl || ""
       ];
-      upsertRowById(sheet, 1, payload.id, row);
-    }
-    else if (action === 'DELETE_ACHIEVEMENT') {
-      var achId = payload.id || payload.achievementId;
-      var sheet = ss.getSheetByName('Achievements');
-      if (sheet) {
-        deleteRowById(sheet, 1, achId);
+      if (row > 0) {
+        sheet.getRange(row, 1, 1, values.length).setValues([values]);
+      } else {
+        sheet.appendRow(values);
       }
     }
 
-    // -------------------------------------------------------------
-    // EVENTS ACTIONS
-    // -------------------------------------------------------------
-    else if (action === 'ADD_EVENT' || action === 'UPDATE_EVENT') {
-      var sheet = getOrCreateSheet(ss, 'Events', [
-        'ID', 'Title', 'Category', 'Date', 'Time', 'Location', 'Description', 'Image', 'Badge Color'
-      ]);
-      var row = [
-        payload.id || '',
-        payload.title || '',
-        payload.category || '',
-        payload.date || '',
-        payload.time || '',
-        payload.location || '',
-        payload.desc || payload.description || '',
-        payload.image || '',
-        payload.badgeColor || ''
+    if (action === "DELETE_ACHIEVEMENT") {
+      var sheet = ss.getSheetByName("Achievements");
+      deleteRowById(sheet, payload.id);
+    }
+
+    // 6. EVENTS
+    if (action === "ADD_EVENT" || action === "UPDATE_EVENT") {
+      var sheet = ss.getSheetByName("Events");
+      var row = findRowById(sheet, payload.id);
+      var values = [
+        payload.id, payload.title, payload.category || "", payload.date || "",
+        payload.time || "", payload.location || "", payload.desc || "", payload.badgeColor || ""
       ];
-      upsertRowById(sheet, 1, payload.id, row);
-    }
-    else if (action === 'DELETE_EVENT') {
-      var evtId = payload.id || payload.eventId;
-      var sheet = ss.getSheetByName('Events');
-      if (sheet) {
-        deleteRowById(sheet, 1, evtId);
+      if (row > 0) {
+        sheet.getRange(row, 1, 1, values.length).setValues([values]);
+      } else {
+        sheet.appendRow(values);
       }
     }
 
-    // -------------------------------------------------------------
-    // CONTACT MESSAGES ACTIONS
-    // -------------------------------------------------------------
-    else if (action === 'ADD_CONTACT_MESSAGE') {
-      var sheet = getOrCreateSheet(ss, 'Messages', [
-        'ID', 'Name', 'Email', 'Phone', 'Subject', 'Message', 'Status', 'Created At'
+    if (action === "DELETE_EVENT") {
+      var sheet = ss.getSheetByName("Events");
+      deleteRowById(sheet, payload.id);
+    }
+
+    // 7. MESSAGES
+    if (action === "ADD_MESSAGE") {
+      var sheet = ss.getSheetByName("Messages");
+      sheet.appendRow([
+        payload.id, payload.name, payload.email || "", payload.phone || "",
+        payload.subject || "", payload.message || "", payload.status || "NEW", payload.createdAt || new Date().toLocaleString()
       ]);
-      var row = [
-        payload.id || '',
-        payload.name || '',
-        payload.email || '',
-        payload.phone || '',
-        payload.subject || '',
-        payload.message || '',
-        payload.status || 'NEW',
-        payload.createdAt || new Date().toLocaleString()
-      ];
-      upsertRowById(sheet, 1, payload.id, row);
-    }
-    else if (action === 'DELETE_MESSAGE') {
-      var msgId = payload.id || payload.messageId;
-      var sheet = ss.getSheetByName('Messages');
-      if (sheet) {
-        deleteRowById(sheet, 1, msgId);
-      }
     }
 
-    return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      message: 'Action ' + action + ' executed successfully.'
-    })).setMimeType(ContentService.MimeType.JSON);
+    if (action === "DELETE_MESSAGE") {
+      var sheet = ss.getSheetByName("Messages");
+      deleteRowById(sheet, payload.id);
+    }
 
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false,
-      error: error.toString()
-    })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Action processed successfully" }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -238,80 +166,72 @@ function doPost(e) {
 // HELPER FUNCTIONS
 // -------------------------------------------------------------
 
-function getAllSheetsData() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function deleteRowById(sheet, id) {
+  if (!sheet || !id) return;
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (data[i][0].toString() === id.toString()) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+}
+
+function findRowById(sheet, id) {
+  if (!sheet || !id) return -1;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString() === id.toString()) {
+      return i + 1;
+    }
+  }
+  return -1;
+}
+
+function getAllData(ss) {
   return {
-    students: getSheetRows(ss, 'Students', ['id', 'fullName', 'dob', 'gender', 'phone', 'email', 'address', 'guardianName', 'emergencyPhone', 'schoolName', 'batch', 'beltLevel', 'joiningDate', 'status']),
-    registrations: getSheetRows(ss, 'Registrations', ['id', 'fullName', 'dob', 'gender', 'phone', 'email', 'address', 'guardianName', 'emergencyPhone', 'schoolName', 'batch', 'beltLevel', 'experience', 'status', 'submittedAt']),
-    attendance: getSheetRows(ss, 'Attendance', ['id', 'date', 'studentId', 'studentName', 'batch', 'status', 'checkInTime']),
-    achievements: getSheetRows(ss, 'Achievements', ['id', 'title', 'studentName', 'event', 'position', 'date', 'imageUrl', 'description']),
-    events: getSheetRows(ss, 'Events', ['id', 'title', 'category', 'date', 'time', 'location', 'desc', 'image', 'badgeColor']),
-    messages: getSheetRows(ss, 'Messages', ['id', 'name', 'email', 'phone', 'subject', 'message', 'status', 'createdAt'])
+    students: getSheetObjects(ss.getSheetByName("Students"), ["id", "fullName", "dob", "gender", "phone", "email", "address", "guardianName", "emergencyPhone", "schoolName", "batch", "beltLevel", "status", "joiningDate"]),
+    attendance: getSheetObjects(ss.getSheetByName("Attendance"), ["id", "date", "studentId", "studentName", "batch", "status", "checkInTime", "remarks"]),
+    achievements: getSheetObjects(ss.getSheetByName("Achievements"), ["id", "title", "studentName", "event", "position", "date", "description", "imageUrl"]),
+    events: getSheetObjects(ss.getSheetByName("Events"), ["id", "title", "category", "date", "time", "location", "desc", "badgeColor"]),
+    messages: getSheetObjects(ss.getSheetByName("Messages"), ["id", "name", "email", "phone", "subject", "message", "status", "createdAt"]),
+    registrations: getSheetObjects(ss.getSheetByName("Registrations"), ["id", "fullName", "dob", "gender", "phone", "email", "guardianName", "emergencyPhone", "schoolName", "batch", "beltLevel", "status", "submittedAt"])
   };
 }
 
-function getSheetRows(ss, sheetName, fields) {
-  var sheet = ss.getSheetByName(sheetName);
+function getSheetObjects(sheet, keys) {
   if (!sheet) return [];
   var data = sheet.getDataRange().getValues();
-  if (data.length <= 1) return []; // header row only
-
+  if (data.length <= 1) return [];
   var result = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
-    if (!row[0]) continue; // Skip empty ID rows
     var obj = {};
-    for (var j = 0; j < fields.length; j++) {
-      obj[fields[j]] = row[j] !== undefined ? String(row[j]) : '';
+    for (var k = 0; k < keys.length; k++) {
+      obj[keys[k]] = row[k] !== undefined ? row[k].toString() : "";
     }
-    result.push(obj);
+    if (obj.id) {
+      result.push(obj);
+    }
   }
   return result;
 }
 
-function getOrCreateSheet(ss, sheetName, headers) {
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-    sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
-  }
-  return sheet;
-}
+function autoSetupSheets(ss) {
+  var sheets = [
+    { name: "Students", headers: ["ID", "Full Name", "DOB", "Gender", "Phone", "Email", "Address", "Guardian Name", "Emergency Phone", "School Name", "Batch", "Belt Level", "Status", "Joining Date"] },
+    { name: "Attendance", headers: ["ID", "Date", "Student ID", "Student Name", "Batch", "Status", "CheckIn Time", "Remarks"] },
+    { name: "Achievements", headers: ["ID", "Title", "Student Name", "Event", "Position", "Date", "Description", "Image URL"] },
+    { name: "Events", headers: ["ID", "Title", "Category", "Date", "Time", "Location", "Description", "Badge Color"] },
+    { name: "Messages", headers: ["ID", "Name", "Email", "Phone", "Subject", "Message", "Status", "Created At"] },
+    { name: "Registrations", headers: ["ID", "Full Name", "DOB", "Gender", "Phone", "Email", "Guardian Name", "Emergency Phone", "School Name", "Batch", "Belt Level", "Status", "Submitted At"] }
+  ];
 
-function upsertRowById(sheet, idColIndex, targetId, rowData) {
-  if (!targetId) {
-    sheet.appendRow(rowData);
-    return;
-  }
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idColIndex - 1]) === String(targetId)) {
-      sheet.getRange(i + 1, 1, 1, rowData.length).setValues([rowData]);
-      return;
-    }
-  }
-  sheet.appendRow(rowData);
-}
-
-function deleteRowById(sheet, idColIndex, targetId) {
-  if (!targetId) return;
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idColIndex - 1]) === String(targetId)) {
-      sheet.deleteRow(i + 1);
-      return;
-    }
-  }
-}
-
-function updateCellById(sheet, idColIndex, targetId, targetColIndex, newValue) {
-  if (!targetId) return;
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idColIndex - 1]) === String(targetId)) {
-      sheet.getRange(i + 1, targetColIndex).setValue(newValue);
-      return;
+  for (var s = 0; s < sheets.length; s++) {
+    var target = ss.getSheetByName(sheets[s].name);
+    if (!target) {
+      target = ss.insertSheet(sheets[s].name);
+      target.appendRow(sheets[s].headers);
+      target.getRange(1, 1, 1, sheets[s].headers.length).setFontWeight("bold").setBackground("#1e293b").setFontColor("#ffffff");
     }
   }
 }
