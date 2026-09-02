@@ -28,17 +28,6 @@
       "desc": "ew",
       "image": "/assets/IMG_4159.PNG",
       "badgeColor": "bg-red-600 text-white",
-      "id": "EVT-002"
-    },
-    {
-      "title": "new",
-      "category": "District Championship",
-      "date": "2026-09-16",
-      "time": "new",
-      "location": "new",
-      "desc": "ew",
-      "image": "/assets/IMG_4159.PNG",
-      "badgeColor": "bg-red-600 text-white",
       "id": "EVT-001"
     }
   ],
