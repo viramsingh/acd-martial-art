@@ -717,12 +717,16 @@ export default function AdminDashboardPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                const curUser = localStorage.getItem('acd_custom_admin_user') || 'admin';
-                const curPass = localStorage.getItem('acd_custom_admin_pass') || 'admin123';
-                setNewAdminUser(curUser);
-                setNewAdminPass(curPass);
+              onClick={async () => {
                 setShowCredsModal(true);
+                setNewAdminPass('');
+                try {
+                  const res = await fetch('/api/auth/credentials');
+                  const json = await res.json();
+                  if (json.success && json.username) {
+                    setNewAdminUser(json.username);
+                  }
+                } catch {}
               }}
               className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-700 transition-all"
               title="Update Master Admin Credentials"

@@ -3,6 +3,46 @@ import { checkAdminSession } from '@/lib/auth';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
 import { getDatabase, saveDatabase } from '@/lib/db';
 
+export async function GET() {
+  const session = await checkAdminSession();
+  if (!session.authenticated) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
+  let username = '';
+
+  if (isSupabaseConfigured()) {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from('admin_credentials')
+          .select('username')
+          .eq('id', 'primary')
+          .maybeSingle();
+        if (data && data.username) {
+          username = data.username.trim();
+        }
+      } catch (e) {
+        console.error('Error fetching admin username from Supabase:', e);
+      }
+    }
+  }
+
+  if (!username) {
+    const db = getDatabase();
+    const customCreds = (db as any).adminCredentials;
+    if (customCreds && customCreds.username) {
+      username = customCreds.username.trim();
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    username: username || session.username || ''
+  });
+}
+
 export async function POST(request: Request) {
   const session = await checkAdminSession();
   if (!session.authenticated) {
