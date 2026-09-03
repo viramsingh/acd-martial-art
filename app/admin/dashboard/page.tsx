@@ -140,6 +140,7 @@ export default function AdminDashboardPage() {
   const [isSubmittingEvent, setIsSubmittingEvent] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Image File Upload Reader Helper
@@ -292,6 +293,31 @@ export default function AdminDashboardPage() {
     } catch {}
     showToast('Logged out of Admin Portal.', 'info');
     router.push('/admin/login');
+  };
+
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    showToast('Preparing multi-sheet Excel file...', 'info');
+    try {
+      const res = await fetch('/api/admin/export');
+      if (!res.ok) throw new Error('Failed to generate export');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      a.download = `ACD_Martial_Arts_Data_${dateStr}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      showToast('Complete database downloaded as Excel!', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Error generating Excel file. Please try again.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // Sync Attendance Form State when Date / Batch / Attendance records change
@@ -733,6 +759,15 @@ export default function AdminDashboardPage() {
             >
               <Key className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">Set Credentials</span>
+            </button>
+            <button
+              onClick={handleExportExcel}
+              disabled={isExporting}
+              className="flex items-center gap-1.5 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-emerald-800/70 transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed shadow-sm"
+              title="Download Complete Database in Multi-Sheet Excel (.xlsx)"
+            >
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400" /> : <FileSpreadsheet className="w-4 h-4 text-emerald-400" />}
+              <span className="hidden sm:inline">Export Excel</span>
             </button>
             <button
               onClick={() => { refreshData(); showToast('Data refreshed!', 'info'); }}
