@@ -27,8 +27,8 @@ const DEFAULT_DB: DatabaseSchema = {
   registrations: [],
   deletedIds: [],
   sheetsConfig: {
-    webAppUrl: process.env.GOOGLE_SHEETS_WEB_APP_URL || "https://script.google.com/macros/s/AKfycbwhME94Ico9R-W4GvHpfGG81yn-ZLOMa7Y8ltV3rg_P_domCTBbBzkOdOMJ9GKHWTZE/exec",
-    enabled: true
+    webAppUrl: process.env.GOOGLE_SHEETS_WEB_APP_URL || "",
+    enabled: !!process.env.GOOGLE_SHEETS_WEB_APP_URL
   }
 };
 
@@ -146,20 +146,33 @@ export async function syncFromGoogleSheets(force: boolean = false): Promise<bool
 
       const deletedSet = new Set(db.deletedIds || []);
 
-      // 1. Merge Students (preserve local active students)
+      // 1. Merge Students (preserve all valid unique student records)
       if (Array.isArray(data.students) && data.students.length > 0) {
         const studentMap = new Map<string, Student>();
-        // Add local students first
+        // Add existing valid local students first
         (db.students || []).forEach((s) => {
-          if (s.id && !deletedSet.has(s.id)) studentMap.set(s.id, s);
+          if (s && s.id && !deletedSet.has(s.id)) {
+            studentMap.set(s.id, s);
+          }
         });
-        // Add/update from sheet
+
+        let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
+
         data.students.forEach((s: any) => {
-          const id = s.id || `ACD-2026-${Math.floor(Math.random() * 1000)}`;
-          if (!studentMap.has(id) && !deletedSet.has(id)) {
+          if (!s) return;
+          const sName = s.fullName || s['Full Name'] || s.name || '';
+          if (!sName.trim()) return;
+
+          let id = s.id ? String(s.id).trim() : '';
+          if (!id || studentMap.has(id)) {
+            currentMax += 1;
+            id = `ACD-2026-${String(currentMax).padStart(3, '0')}`;
+          }
+
+          if (!deletedSet.has(id)) {
             studentMap.set(id, {
               id,
-              fullName: s.fullName || s['Full Name'] || 'Student',
+              fullName: sName,
               dob: s.dob || s.DOB || '',
               gender: s.gender || s.Gender || 'Male',
               phone: s.phone || s.Phone || '',
