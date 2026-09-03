@@ -131,8 +131,8 @@ CREATE POLICY "Allow public access sheets_config" ON public.sheets_config FOR AL
 -- 8. ADMIN CREDENTIALS TABLE (Dynamic Master Login)
 CREATE TABLE IF NOT EXISTS public.admin_credentials (
     id TEXT PRIMARY KEY DEFAULT 'primary',
-    username TEXT NOT NULL DEFAULT 'admin',
-    password TEXT NOT NULL DEFAULT 'admin123',
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

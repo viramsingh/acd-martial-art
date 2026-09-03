@@ -15,35 +15,51 @@ export async function POST(request: Request) {
       );
     }
 
-    let expectedUser = (process.env.ADMIN_USERNAME || 'admin').trim();
-    let expectedPass = (process.env.ADMIN_PASSWORD || 'admin123').trim();
+    let expectedUser = '';
+    let expectedPass = '';
 
-    // 1. Check Supabase Cloud Database for dynamically changed credentials
+    // 1. Fetch dynamic credentials strictly from Supabase Cloud Database
     if (isSupabaseConfigured()) {
       const supabase = getSupabaseClient();
       if (supabase) {
         try {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('admin_credentials')
-            .select('*')
+            .select('username, password')
             .eq('id', 'primary')
             .maybeSingle();
+
           if (data && data.username && data.password) {
             expectedUser = data.username.trim();
             expectedPass = data.password.trim();
           }
         } catch (e) {
-          console.error('Error querying dynamic credentials:', e);
+          console.error('Error querying dynamic credentials from Supabase:', e);
         }
       }
-    } else {
-      // 2. Fallback to local memory DB
+    }
+
+    // 2. Fallback to local memory DB if Supabase not configured
+    if (!expectedUser || !expectedPass) {
       const db = getDatabase();
       const customCreds = (db as any).adminCredentials;
       if (customCreds && customCreds.username && customCreds.password) {
         expectedUser = customCreds.username.trim();
         expectedPass = customCreds.password.trim();
       }
+    }
+
+    // 3. Fallback to server environment variables if set
+    if (!expectedUser || !expectedPass) {
+      expectedUser = (process.env.ADMIN_USERNAME || '').trim();
+      expectedPass = (process.env.ADMIN_PASSWORD || '').trim();
+    }
+
+    if (!expectedUser || !expectedPass) {
+      return NextResponse.json(
+        { success: false, message: 'Admin credentials not configured in database' },
+        { status: 500 }
+      );
     }
 
     const inputUser = String(username).trim();
