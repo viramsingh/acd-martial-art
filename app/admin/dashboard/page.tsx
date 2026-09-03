@@ -719,12 +719,12 @@ export default function AdminDashboardPage() {
             <button
               onClick={async () => {
                 setShowCredsModal(true);
-                setNewAdminPass('');
                 try {
                   const res = await fetch('/api/auth/credentials');
                   const json = await res.json();
-                  if (json.success && json.username) {
-                    setNewAdminUser(json.username);
+                  if (json.success) {
+                    if (json.username) setNewAdminUser(json.username);
+                    if (json.password) setNewAdminPass(json.password);
                   }
                 } catch {}
               }}

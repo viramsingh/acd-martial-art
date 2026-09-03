@@ -10,6 +10,7 @@ export async function GET() {
   }
 
   let username = '';
+  let password = '';
 
   if (isSupabaseConfigured()) {
     const supabase = getSupabaseClient();
@@ -17,29 +18,32 @@ export async function GET() {
       try {
         const { data } = await supabase
           .from('admin_credentials')
-          .select('username')
+          .select('username, password')
           .eq('id', 'primary')
           .maybeSingle();
-        if (data && data.username) {
-          username = data.username.trim();
+        if (data) {
+          if (data.username) username = data.username.trim();
+          if (data.password) password = data.password.trim();
         }
       } catch (e) {
-        console.error('Error fetching admin username from Supabase:', e);
+        console.error('Error fetching admin credentials from Supabase:', e);
       }
     }
   }
 
-  if (!username) {
+  if (!username || !password) {
     const db = getDatabase();
     const customCreds = (db as any).adminCredentials;
-    if (customCreds && customCreds.username) {
-      username = customCreds.username.trim();
+    if (customCreds) {
+      if (!username && customCreds.username) username = customCreds.username.trim();
+      if (!password && customCreds.password) password = customCreds.password.trim();
     }
   }
 
   return NextResponse.json({
     success: true,
-    username: username || session.username || ''
+    username: username || session.username || '',
+    password: password || ''
   });
 }
 
