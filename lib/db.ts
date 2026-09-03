@@ -15,6 +15,7 @@ export interface DatabaseSchema {
   messages: ContactMessage[];
   registrations: StudentRegistration[];
   sheetsConfig: GoogleSheetsConfig;
+  deletedIds?: string[];
 }
 
 const DEFAULT_DB: DatabaseSchema = {
@@ -24,6 +25,7 @@ const DEFAULT_DB: DatabaseSchema = {
   events: [],
   messages: [],
   registrations: [],
+  deletedIds: [],
   sheetsConfig: {
     webAppUrl: process.env.GOOGLE_SHEETS_WEB_APP_URL || "https://script.google.com/macros/s/AKfycbwhME94Ico9R-W4GvHpfGG81yn-ZLOMa7Y8ltV3rg_P_domCTBbBzkOdOMJ9GKHWTZE/exec",
     enabled: true
@@ -54,28 +56,33 @@ function getDbFilePath(): string {
 let memoryDb: DatabaseSchema | null = null;
 
 export function getDatabase(): DatabaseSchema {
-  if (memoryDb) {
-    return memoryDb;
-  }
-
   const filePath = getDbFilePath();
   try {
     if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
       const content = fs.readFileSync(/*turbopackIgnore: true*/ filePath, 'utf-8');
       memoryDb = JSON.parse(content);
+      if (memoryDb) {
+        memoryDb.deletedIds = memoryDb.deletedIds || [];
+      }
       return memoryDb!;
     }
   } catch (err) {
     console.error('Error reading database file:', err);
   }
 
-  memoryDb = { ...DEFAULT_DB };
+  if (memoryDb) {
+    memoryDb.deletedIds = memoryDb.deletedIds || [];
+    return memoryDb;
+  }
+
+  memoryDb = { ...DEFAULT_DB, deletedIds: [] };
   saveDatabase(memoryDb);
   return memoryDb;
 }
 
 export function saveDatabase(db: DatabaseSchema): void {
   memoryDb = db;
+  lastSyncTimestamp = 0;
   const filePath = getDbFilePath();
   try {
     const dir = path.dirname(filePath);
@@ -105,11 +112,21 @@ async function syncToGoogleSheets(action: string, payload: any) {
   }
 }
 
+let lastSyncTimestamp = 0;
+const SYNC_CACHE_TTL = 60 * 1000; // 60 seconds cache TTL for super-fast API response
+
 // Async sync FROM Google Sheets to pull all rows live into server DB
-export async function syncFromGoogleSheets(): Promise<boolean> {
+export async function syncFromGoogleSheets(force: boolean = false): Promise<boolean> {
   const db = getDatabase();
   const webUrl = db.sheetsConfig?.webAppUrl || process.env.GOOGLE_SHEETS_WEB_APP_URL;
   if (!webUrl || !db.sheetsConfig?.enabled) return false;
+
+  const now = Date.now();
+  if (!force && (now - lastSyncTimestamp < SYNC_CACHE_TTL)) {
+    return true; // Return immediately from in-memory DB
+  }
+
+  lastSyncTimestamp = now;
 
   try {
     const res = await fetch(webUrl, {
@@ -126,43 +143,101 @@ export async function syncFromGoogleSheets(): Promise<boolean> {
     }
     if (json && json.status === 'success' && json.data) {
       const data = json.data;
+
+      const deletedSet = new Set(db.deletedIds || []);
+
+      // 1. Merge Students (preserve local active students)
       if (Array.isArray(data.students) && data.students.length > 0) {
-        db.students = data.students.map((s: any) => ({
-          id: s.id || `ACD-2026-${Math.floor(Math.random() * 1000)}`,
-          fullName: s.fullName || s['Full Name'] || 'Student',
-          dob: s.dob || s.DOB || '',
-          gender: s.gender || s.Gender || 'Male',
-          phone: s.phone || s.Phone || '',
-          email: s.email || s.Email || '',
-          address: s.address || s.Address || '',
-          guardianName: s.guardianName || s['Guardian Name'] || '',
-          emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
-          schoolName: s.schoolName || s['School Name'] || '',
-          batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
-          beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
-          status: s.status || s.Status || 'ACTIVE',
-          joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
-        }));
+        const studentMap = new Map<string, Student>();
+        // Add local students first
+        (db.students || []).forEach((s) => {
+          if (s.id && !deletedSet.has(s.id)) studentMap.set(s.id, s);
+        });
+        // Add/update from sheet
+        data.students.forEach((s: any) => {
+          const id = s.id || `ACD-2026-${Math.floor(Math.random() * 1000)}`;
+          if (!studentMap.has(id) && !deletedSet.has(id)) {
+            studentMap.set(id, {
+              id,
+              fullName: s.fullName || s['Full Name'] || 'Student',
+              dob: s.dob || s.DOB || '',
+              gender: s.gender || s.Gender || 'Male',
+              phone: s.phone || s.Phone || '',
+              email: s.email || s.Email || '',
+              address: s.address || s.Address || '',
+              guardianName: s.guardianName || s['Guardian Name'] || '',
+              emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
+              schoolName: s.schoolName || s['School Name'] || '',
+              batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
+              beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
+              status: s.status || s.Status || 'ACTIVE',
+              joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
+            });
+          }
+        });
+        db.students = Array.from(studentMap.values());
       }
+
+      if (Array.isArray(data.attendance) && data.attendance.length > 0) {
+        db.attendance = data.attendance;
+      }
+      if (Array.isArray(data.achievements) && data.achievements.length > 0) {
+        db.achievements = data.achievements.filter((a: any) => !deletedSet.has(a.id));
+      }
+      if (Array.isArray(data.events) && data.events.length > 0) {
+        db.events = data.events.filter((e: any) => !deletedSet.has(e.id));
+      }
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        db.messages = data.messages.filter((m: any) => !deletedSet.has(m.id));
+      }// 2. Merge Registrations (preserve APPROVED and REJECTED status)
       if (Array.isArray(data.registrations) && data.registrations.length > 0) {
-        db.registrations = data.registrations.map((r: any) => ({
-          id: r.id || `REG-2026-${Math.floor(Math.random() * 1000)}`,
-          fullName: r.fullName || r['Full Name'] || '',
-          dob: r.dob || '',
-          gender: r.gender || 'Male',
-          phone: r.phone || '',
-          email: r.email || '',
-          address: r.address || '',
-          guardianName: r.guardianName || '',
-          emergencyPhone: r.emergencyPhone || '',
-          schoolName: r.schoolName || '',
-          batch: r.batch || 'Evening 5:00 To 6:00',
-          beltLevel: r.beltLevel || 'White Belt',
-          experience: r.experience || 'Beginner',
-          status: r.status || 'PENDING',
-          submittedAt: r.submittedAt || new Date().toLocaleString()
-        }));
+        const activeStudentPhones = new Set((db.students || []).map((s) => s.phone ? s.phone.replace(/\D/g, '').trim() : '').filter(Boolean));
+        const activeStudentEmails = new Set((db.students || []).map((s) => s.email ? s.email.toLowerCase().trim() : '').filter(Boolean));
+        const localRegMap = new Map<string, string>();
+        (db.registrations || []).forEach((r) => {
+          if (r.id) localRegMap.set(r.id, r.status);
+        });
+
+        db.registrations = data.registrations.map((r: any) => {
+          const id = r.id || `REG-2026-${Math.floor(Math.random() * 1000)}`;
+          const phoneClean = r.phone ? r.phone.replace(/\D/g, '').trim() : '';
+          const emailClean = r.email ? r.email.toLowerCase().trim() : '';
+          const localStatus = localRegMap.get(id);
+
+          let finalStatus = r.status;
+          // If already in active students or local status is APPROVED / REJECTED, enforce it!
+          if (
+            (phoneClean && activeStudentPhones.has(phoneClean)) ||
+            (emailClean && activeStudentEmails.has(emailClean)) ||
+            localStatus === 'APPROVED'
+          ) {
+            finalStatus = 'APPROVED';
+          } else if (localStatus === 'REJECTED') {
+            finalStatus = 'REJECTED';
+          } else if (!finalStatus) {
+            finalStatus = 'PENDING';
+          }
+
+          return {
+            id,
+            fullName: r.fullName || r['Full Name'] || '',
+            dob: r.dob || '',
+            gender: r.gender || 'Male',
+            phone: r.phone || '',
+            email: r.email || '',
+            address: r.address || '',
+            guardianName: r.guardianName || '',
+            emergencyPhone: r.emergencyPhone || '',
+            schoolName: r.schoolName || '',
+            batch: r.batch || 'Evening 5:00 To 6:00',
+            beltLevel: r.beltLevel || 'White Belt',
+            experience: r.experience || 'Beginner',
+            status: finalStatus as any,
+            submittedAt: r.submittedAt || new Date().toLocaleString()
+          };
+        });
       }
+
       if (Array.isArray(data.attendance) && data.attendance.length > 0) {
         db.attendance = data.attendance;
       }
@@ -185,15 +260,78 @@ export async function syncFromGoogleSheets(): Promise<boolean> {
 }
 
 // -------------------------------------------------------------
+// DUPLICATE CHECK HELPER
+// -------------------------------------------------------------
+export function isDuplicateStudentOrRegistration(data: { phone?: string; email?: string; fullName?: string }): { isDuplicate: boolean; reason?: string } {
+  const db = getDatabase();
+  const phone = data.phone ? data.phone.replace(/\D/g, '').trim() : '';
+  const email = data.email ? data.email.toLowerCase().trim() : '';
+  const fullName = data.fullName ? data.fullName.toLowerCase().trim() : '';
+
+  if (!phone && !email && !fullName) return { isDuplicate: false };
+
+  const phoneMap = new Map<string, string>();
+  const emailMap = new Map<string, string>();
+
+  // 1. Index active students
+  for (const s of db.students || []) {
+    const p = s.phone ? s.phone.replace(/\D/g, '').trim() : '';
+    const e = s.email ? s.email.toLowerCase().trim() : '';
+    if (p && p.length >= 7) phoneMap.set(p, s.fullName);
+    if (e) emailMap.set(e, s.fullName);
+  }
+
+  // 2. Index pending/approved registrations
+  for (const r of db.registrations || []) {
+    if (r.status === 'REJECTED') continue;
+    const p = r.phone ? r.phone.replace(/\D/g, '').trim() : '';
+    const e = r.email ? r.email.toLowerCase().trim() : '';
+    if (p && p.length >= 7 && !phoneMap.has(p)) phoneMap.set(p, `${r.fullName} (Application Submitted)`);
+    if (e && !emailMap.has(e)) emailMap.set(e, `${r.fullName} (Application Submitted)`);
+  }
+
+  if (phone && phone.length >= 7 && phoneMap.has(phone)) {
+    return { isDuplicate: true, reason: `Already registered! A record for (${phoneMap.get(phone)}) is already registered with phone number ${data.phone}.` };
+  }
+  if (email && emailMap.has(email)) {
+    return { isDuplicate: true, reason: `Already registered! A record for (${emailMap.get(email)}) is already registered with email address ${data.email}.` };
+  }
+
+  return { isDuplicate: false };
+}
+
+export function getMaxIdNumber(list: Array<{ id?: string }>): number {
+  let maxNum = 0;
+  (list || []).forEach((item) => {
+    if (item && item.id) {
+      const parts = item.id.split('-');
+      const lastPart = parts[parts.length - 1];
+      const num = parseInt(lastPart, 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  });
+  return maxNum;
+}
+
+// -------------------------------------------------------------
 // STUDENTS DB METHODS
 // -------------------------------------------------------------
 export function getStudentsDB(): Student[] {
-  return getDatabase().students || [];
+  const raw = getDatabase().students || [];
+  const map = new Map<string, Student>();
+  raw.forEach((s) => {
+    if (s && s.id) {
+      map.set(s.id, s);
+    }
+  });
+  return Array.from(map.values());
 }
 
 export function saveStudentDB(studentData: Partial<Omit<Student, 'id'>> & { fullName: string; phone: string; guardianName: string; batch: Student['batch']; beltLevel: Student['beltLevel']; id?: string }): Student {
   const db = getDatabase();
-  const students = [...db.students];
+  const students = getStudentsDB();
 
   if (studentData.id) {
     const index = students.findIndex((s) => s.id === studentData.id);
@@ -206,8 +344,8 @@ export function saveStudentDB(studentData: Partial<Omit<Student, 'id'>> & { full
     }
   }
 
-  const count = students.length + 1;
-  const newId = `ACD-2026-${String(count).padStart(3, '0')}`;
+  const maxNum = getMaxIdNumber(students);
+  const newId = `ACD-2026-${String(maxNum + 1).padStart(3, '0')}`;
   const newStudent: Student = {
     ...studentData,
     id: newId,
@@ -239,12 +377,29 @@ export function deleteStudentDB(studentId: string): boolean {
   const db = getDatabase();
   const initialLen = db.students.length;
   db.students = db.students.filter((s) => s.id !== studentId);
-  if (db.students.length < initialLen) {
-    saveDatabase(db);
-    syncToGoogleSheets('DELETE_STUDENT', { studentId });
-    return true;
+  if (!db.deletedIds) db.deletedIds = [];
+  if (!db.deletedIds.includes(studentId)) db.deletedIds.push(studentId);
+  saveDatabase(db);
+  syncToGoogleSheets('DELETE_STUDENT', { id: studentId, studentId });
+  return true;
+}
+
+export function formatDateYMD(d: string | Date): string {
+  if (!d) return new Date().toISOString().split('T')[0];
+  const str = String(d).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
   }
-  return false;
+  try {
+    const parsed = new Date(d);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  } catch {}
+  return str.substring(0, 10);
 }
 
 // -------------------------------------------------------------
@@ -253,7 +408,8 @@ export function deleteStudentDB(studentId: string): boolean {
 export function getAttendanceRecordsDB(date?: string): AttendanceRecord[] {
   const records = getDatabase().attendance || [];
   if (date) {
-    return records.filter((r) => r.date === date);
+    const targetDate = formatDateYMD(date);
+    return records.filter((r) => formatDateYMD(r.date) === targetDate);
   }
   return records;
 }
@@ -263,28 +419,32 @@ export function markAttendanceDB(
   updates: Array<{ studentId: string; studentName: string; batch: string; status: AttendanceRecord['status']; remarks?: string }>
 ): AttendanceRecord[] {
   const db = getDatabase();
-  const updatedRecords = [...db.attendance];
-  const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const targetDate = formatDateYMD(date);
+
+  const updatedRecords = [...(db.attendance || [])];
 
   for (const item of updates) {
-    const existingIndex = updatedRecords.findIndex((r) => r.date === date && r.studentId === item.studentId);
+    // Match by same Date + same Student + same Batch
+    const existingIndex = updatedRecords.findIndex(
+      (r) => formatDateYMD(r.date) === targetDate && r.studentId === item.studentId && r.batch === item.batch
+    );
+
     if (existingIndex !== -1) {
+      // Directly update existing record status
       updatedRecords[existingIndex] = {
         ...updatedRecords[existingIndex],
+        date: targetDate,
         status: item.status,
-        remarks: item.remarks || updatedRecords[existingIndex].remarks,
-        checkInTime: item.status === 'PRESENT' ? nowStr : undefined,
       };
     } else {
+      // Create new entry for different batch or new date
       const newRec: AttendanceRecord = {
         id: `ATT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        date,
+        date: targetDate,
         studentId: item.studentId,
         studentName: item.studentName,
         batch: item.batch,
         status: item.status,
-        checkInTime: item.status === 'PRESENT' ? nowStr : undefined,
-        remarks: item.remarks,
       };
       updatedRecords.unshift(newRec);
     }
@@ -292,8 +452,8 @@ export function markAttendanceDB(
 
   db.attendance = updatedRecords;
   saveDatabase(db);
-  syncToGoogleSheets('MARK_ATTENDANCE', { date, updates });
-  return updatedRecords;
+  syncToGoogleSheets('MARK_ATTENDANCE', { date: targetDate, updates });
+  return db.attendance;
 }
 
 // -------------------------------------------------------------
@@ -306,7 +466,8 @@ export function getAchievementsDB(): Achievement[] {
 export function addAchievementDB(achievement: Omit<Achievement, 'id'>): Achievement {
   const db = getDatabase();
   const list = [...db.achievements];
-  const newId = `ACH-${String(list.length + 1).padStart(3, '0')}`;
+  const maxNum = getMaxIdNumber(list);
+  const newId = `ACH-${String(maxNum + 1).padStart(3, '0')}`;
   const newAchievement: Achievement = {
     ...achievement,
     id: newId,
@@ -337,12 +498,11 @@ export function deleteAchievementDB(id: string): boolean {
   const db = getDatabase();
   const initLen = db.achievements.length;
   db.achievements = db.achievements.filter((a) => a.id !== id);
-  if (db.achievements.length < initLen) {
-    saveDatabase(db);
-    syncToGoogleSheets('DELETE_ACHIEVEMENT', { id });
-    return true;
-  }
-  return false;
+  if (!db.deletedIds) db.deletedIds = [];
+  if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
+  saveDatabase(db);
+  syncToGoogleSheets('DELETE_ACHIEVEMENT', { id });
+  return true;
 }
 
 // -------------------------------------------------------------
@@ -355,7 +515,8 @@ export function getEventsDB(): UpcomingEvent[] {
 export function addEventDB(event: Omit<UpcomingEvent, 'id'>): UpcomingEvent {
   const db = getDatabase();
   const list = [...db.events];
-  const newId = `EVT-${String(list.length + 1).padStart(3, '0')}`;
+  const maxNum = getMaxIdNumber(list);
+  const newId = `EVT-${String(maxNum + 1).padStart(3, '0')}`;
   const newEvent: UpcomingEvent = {
     ...event,
     id: newId,
@@ -387,12 +548,11 @@ export function deleteEventDB(id: string): boolean {
   const db = getDatabase();
   const initLen = db.events.length;
   db.events = db.events.filter((e) => e.id !== id);
-  if (db.events.length < initLen) {
-    saveDatabase(db);
-    syncToGoogleSheets('DELETE_EVENT', { id });
-    return true;
-  }
-  return false;
+  if (!db.deletedIds) db.deletedIds = [];
+  if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
+  saveDatabase(db);
+  syncToGoogleSheets('DELETE_EVENT', { id });
+  return true;
 }
 
 // -------------------------------------------------------------
@@ -405,9 +565,10 @@ export function getContactMessagesDB(): ContactMessage[] {
 export function addContactMessageDB(message: Omit<ContactMessage, 'id' | 'status' | 'createdAt'>): ContactMessage {
   const db = getDatabase();
   const list = [...db.messages];
+  const maxNum = getMaxIdNumber(list);
   const newMsg: ContactMessage = {
     ...message,
-    id: `MSG-${String(list.length + 1).padStart(3, '0')}`,
+    id: `MSG-${String(maxNum + 1).padStart(3, '0')}`,
     status: 'NEW',
     createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
   };
@@ -431,12 +592,11 @@ export function deleteContactMessageDB(id: string): boolean {
   const db = getDatabase();
   const initLen = db.messages.length;
   db.messages = db.messages.filter((m) => m.id !== id);
-  if (db.messages.length < initLen) {
-    saveDatabase(db);
-    syncToGoogleSheets('DELETE_MESSAGE', { id });
-    return true;
-  }
-  return false;
+  if (!db.deletedIds) db.deletedIds = [];
+  if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
+  saveDatabase(db);
+  syncToGoogleSheets('DELETE_MESSAGE', { id });
+  return true;
 }
 
 // -------------------------------------------------------------
@@ -449,9 +609,10 @@ export function getRegistrationsDB(): StudentRegistration[] {
 export function submitRegistrationDB(regData: Omit<StudentRegistration, 'id' | 'status' | 'submittedAt'>): StudentRegistration {
   const db = getDatabase();
   const list = [...db.registrations];
+  const maxNum = getMaxIdNumber(list);
   const newReg: StudentRegistration = {
     ...regData,
-    id: `REG-2026-${String(list.length + 1).padStart(3, '0')}`,
+    id: `REG-2026-${String(maxNum + 1).padStart(3, '0')}`,
     status: 'PENDING',
     submittedAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
   };
@@ -469,6 +630,7 @@ export function approveRegistrationDB(id: string): Student | null {
 
   reg.status = 'APPROVED';
   saveDatabase(db);
+  syncToGoogleSheets('UPDATE_REGISTRATION', reg);
 
   const student = saveStudentDB({
     fullName: reg.fullName,
@@ -495,6 +657,7 @@ export function rejectRegistrationDB(id: string): void {
   if (reg) {
     reg.status = 'REJECTED';
     saveDatabase(db);
+    syncToGoogleSheets('UPDATE_REGISTRATION', reg);
   }
 }
 

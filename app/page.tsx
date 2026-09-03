@@ -423,7 +423,7 @@ export default function HomePage() {
             <div key={ach.id} className="glass-card p-6 rounded-2xl space-y-4 border border-amber-500/30 flex flex-col justify-between">
               <div className="space-y-4">
                 <div className="relative h-56 sm:h-60 w-full rounded-xl overflow-hidden">
-                  <Image src={ach.imageUrl || '/assets/achievement_trophy.jpg'} alt={ach.title} fill className="object-cover object-top" />
+                  <Image unoptimized src={ach.imageUrl || '/assets/achievement_trophy.jpg'} alt={ach.title} fill className="object-cover object-top" />
                 </div>
                 <span className="text-xs font-bold text-amber-400 bg-amber-950/60 border border-amber-800 px-2.5 py-1 rounded-full uppercase tracking-wide inline-block">
                   {ach.position}

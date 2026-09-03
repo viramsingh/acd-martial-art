@@ -21,10 +21,17 @@ export default function ContactPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanPhone = formData.phone.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      showToast('Phone number must be exactly 10 numeric digits.', 'error');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await addContactMessageApi(formData) || addContactMessage(formData);
+      await addContactMessageApi({ ...formData, phone: cleanPhone }) || addContactMessage({ ...formData, phone: cleanPhone });
       setLoading(false);
       setSubmitted(true);
       showToast(`Thank you, ${formData.name}! Your message was sent to ACD Academy.`, 'success');
@@ -202,14 +209,22 @@ export default function ContactPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-300">Phone Number *</label>
+                  <label className="text-xs font-semibold text-slate-300">Phone Number (10 digits) *</label>
                   <input
                     type="tel"
                     required
+                    maxLength={10}
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (!/[0-9]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete', 'Enter'].includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                     placeholder="e.g. 9340772689"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500 font-mono"
                   />
                 </div>
               </div>

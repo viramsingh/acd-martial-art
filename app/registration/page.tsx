@@ -28,10 +28,29 @@ export default function StudentRegistrationPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanPhone = formData.phone.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      showToast('Phone number must be exactly 10 numeric digits.', 'error');
+      return;
+    }
+
+    if (formData.emergencyPhone) {
+      const cleanEmergency = formData.emergencyPhone.replace(/\D/g, '');
+      if (cleanEmergency.length !== 10) {
+        showToast('Emergency phone number must be exactly 10 numeric digits.', 'error');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
-      const reg = await submitRegistrationApi(formData) || submitRegistration(formData);
+      const reg = await submitRegistrationApi({
+        ...formData,
+        phone: cleanPhone,
+        emergencyPhone: formData.emergencyPhone ? formData.emergencyPhone.replace(/\D/g, '') : '',
+      });
       setLoading(false);
       setSubmittedReg(reg);
       showToast(`Registration submitted for ${formData.fullName}! Reference: ${reg.id}`, 'success');
@@ -49,9 +68,10 @@ export default function StudentRegistrationPage() {
         beltLevel: 'White Belt' as BeltLevel,
         experience: 'Beginner (No prior experience)',
       });
-    } catch (err) {
+    } catch (err: any) {
       setLoading(false);
-      showToast('Failed to submit registration. Please try again.', 'error');
+      const errMsg = err?.message || 'Failed to submit registration. Please try again.';
+      showToast(errMsg, 'error');
     }
   };
 
@@ -151,9 +171,10 @@ export default function StudentRegistrationPage() {
                     <input
                       type="date"
                       required
+                      max={new Date().toISOString().split('T')[0]}
                       value={formData.dob}
                       onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500  [color-scheme:dark]"
                     />
                   </div>
                 </div>
@@ -173,14 +194,22 @@ export default function StudentRegistrationPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300">Phone Number *</label>
+                    <label className="text-xs font-semibold text-slate-300">Phone Number (10 digits) *</label>
                     <input
                       type="tel"
                       required
+                      maxLength={10}
+                      inputMode="numeric"
+                      pattern="[0-9]{10}"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (!/[0-9]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete', 'Enter'].includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                       placeholder="e.g. 9340772689"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500 font-mono"
                     />
                   </div>
 
@@ -245,14 +274,22 @@ export default function StudentRegistrationPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300">Emergency Phone Number *</label>
+                    <label className="text-xs font-semibold text-slate-300">Emergency Phone Number (10 digits) *</label>
                     <input
                       type="tel"
                       required
+                      maxLength={10}
+                      inputMode="numeric"
+                      pattern="[0-9]{10}"
                       value={formData.emergencyPhone}
-                      onChange={(e) => setFormData({ ...formData, emergencyPhone: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (!/[0-9]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete', 'Enter'].includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                          e.preventDefault();
+                        }
+                      }}
+                      onChange={(e) => setFormData({ ...formData, emergencyPhone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                       placeholder="e.g. 9876500000"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500 font-mono"
                     />
                   </div>
                 </div>

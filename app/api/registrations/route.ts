@@ -1,16 +1,30 @@
 import { NextResponse } from 'next/server';
-import { getRegistrationsDB, submitRegistrationDB, approveRegistrationDB, rejectRegistrationDB, syncFromGoogleSheets } from '@/lib/db';
+import { getRegistrationsDB, submitRegistrationDB, approveRegistrationDB, rejectRegistrationDB, syncFromGoogleSheets, isDuplicateStudentOrRegistration } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
 export async function GET() {
-  await syncFromGoogleSheets();
   const registrations = getRegistrationsDB();
-  return NextResponse.json({ success: true, data: registrations });
+  if (registrations.length === 0) {
+    await syncFromGoogleSheets();
+  } else {
+    syncFromGoogleSheets().catch(() => {});
+  }
+  return NextResponse.json({ success: true, data: getRegistrationsDB() });
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const cleanPhone = String(body?.phone || '').replace(/\D/g, '');
+    if (!body || !body.fullName || cleanPhone.length !== 10) {
+      return NextResponse.json({ success: false, message: 'Full name and a valid 10-digit numeric phone number are required.' }, { status: 400 });
+    }
+
+    const dupCheck = isDuplicateStudentOrRegistration(body);
+    if (dupCheck.isDuplicate) {
+      return NextResponse.json({ success: false, message: dupCheck.reason || 'Already registered! Duplicate registration entry.' }, { status: 409 });
+    }
+
     const created = submitRegistrationDB(body);
     return NextResponse.json({ success: true, data: created }, { status: 201 });
   } catch (error) {

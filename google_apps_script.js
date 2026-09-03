@@ -38,14 +38,20 @@ function doPost(e) {
     }
 
     // 2. REGISTRATIONS
-    if (action === "SUBMIT_REGISTRATION") {
+    if (action === "SUBMIT_REGISTRATION" || action === "UPDATE_REGISTRATION") {
       var sheet = ss.getSheetByName("Registrations");
-      sheet.appendRow([
-        payload.id, payload.fullName, payload.dob, payload.gender,
-        payload.phone, payload.email || "", payload.guardianName,
+      var row = findRowById(sheet, payload.id);
+      var values = [
+        payload.id, payload.fullName, payload.dob || "", payload.gender || "",
+        payload.phone || "", payload.email || "", payload.guardianName || "",
         payload.emergencyPhone || "", payload.schoolName || "",
-        payload.batch, payload.beltLevel, payload.status || "PENDING", payload.submittedAt || new Date().toLocaleString()
-      ]);
+        payload.batch || "", payload.beltLevel || "", payload.status || "PENDING", payload.submittedAt || new Date().toLocaleString()
+      ];
+      if (row > 0) {
+        sheet.getRange(row, 1, 1, values.length).setValues([values]);
+      } else {
+        sheet.appendRow(values);
+      }
     }
 
     // 3. STUDENTS
@@ -79,23 +85,51 @@ function doPost(e) {
       deleteRowById(sheet, payload.studentId);
     }
 
+
     // 4. ATTENDANCE
     if (action === "MARK_ATTENDANCE") {
       var sheet = ss.getSheetByName("Attendance");
-      var date = payload.date;
+      var date = formatDateString(payload.date, ss);
       var updates = payload.updates || [];
-      for (var i = 0; i < updates.length; i++) {
-        var u = updates[i];
-        sheet.appendRow([
-          "ATT-" + Date.now() + "-" + i,
-          date,
-          u.studentId,
-          u.studentName,
-          u.batch,
-          u.status,
-          u.status === "PRESENT" ? new Date().toLocaleTimeString() : "",
-          u.remarks || ""
-        ]);
+      if (sheet && updates.length > 0) {
+        var data = sheet.getDataRange().getValues();
+        var displayData = sheet.getDataRange().getDisplayValues();
+
+        for (var i = 0; i < updates.length; i++) {
+          var u = updates[i];
+          var targetStudentId = String(u.studentId || '').trim();
+          var targetBatch = String(u.batch || '').trim();
+          var foundRow = -1;
+
+          for (var r = 1; r < data.length; r++) {
+            var rowDate = formatDateString(data[r][1], ss);
+            if (!rowDate && displayData[r] && displayData[r][1]) {
+              rowDate = formatDateString(displayData[r][1], ss);
+            }
+            var rowStudentId = String(data[r][2] || '').trim();
+            var rowBatch = String(data[r][4] || '').trim();
+
+            if (rowDate === date && rowStudentId === targetStudentId && rowBatch === targetBatch) {
+              foundRow = r + 1; // 1-indexed row in sheet
+              break;
+            }
+          }
+
+          if (foundRow > 0) {
+            sheet.getRange(foundRow, 6).setValue(u.status); // Col 6: Status
+          } else {
+            sheet.appendRow([
+              "ATT-" + Date.now() + "-" + i,
+              date,
+              u.studentId,
+              u.studentName,
+              u.batch,
+              u.status,
+              "",
+              ""
+            ]);
+          }
+        }
       }
     }
 
@@ -165,6 +199,33 @@ function doPost(e) {
 // -------------------------------------------------------------
 // HELPER FUNCTIONS
 // -------------------------------------------------------------
+
+function formatDateString(val, ss) {
+  if (!val) return '';
+  var str = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
+  }
+  if (val instanceof Date || (typeof val === 'object' && val.getFullYear)) {
+    try {
+      var tz = ss ? ss.getSpreadsheetTimeZone() : Session.getScriptTimeZone();
+      return Utilities.formatDate(val, tz, "yyyy-MM-dd");
+    } catch (e) {
+      var y = val.getFullYear();
+      var m = ('0' + (val.getMonth() + 1)).slice(-2);
+      var d = ('0' + val.getDate()).slice(-2);
+      return y + '-' + m + '-' + d;
+    }
+  }
+  try {
+    var parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      var tz = ss ? ss.getSpreadsheetTimeZone() : Session.getScriptTimeZone();
+      return Utilities.formatDate(parsed, tz, "yyyy-MM-dd");
+    }
+  } catch (e) {}
+  return str.substring(0, 10);
+}
 
 function deleteRowById(sheet, id) {
   if (!sheet || !id) return;

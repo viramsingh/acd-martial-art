@@ -100,6 +100,39 @@ export async function connectGoogleSheet(webAppUrl: string): Promise<{ success: 
   }
 }
 
+export function formatDateYMD(d: string | Date): string {
+  if (!d) return new Date().toISOString().split('T')[0];
+  const str = String(d).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
+  }
+  try {
+    const parsed = new Date(d);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  } catch {}
+  return str.substring(0, 10);
+}
+
+export function getMaxIdNumber(list: Array<{ id?: string }>): number {
+  let maxNum = 0;
+  (list || []).forEach((item) => {
+    if (item && item.id) {
+      const parts = item.id.split('-');
+      const lastPart = parts[parts.length - 1];
+      const num = parseInt(lastPart, 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  });
+  return maxNum;
+}
+
 function getItem<T>(key: string, defaultValue: T): T {
   if (typeof window === 'undefined') return defaultValue;
   const data = localStorage.getItem(key);
@@ -117,47 +150,43 @@ function setItem<T>(key: string, value: T): void {
 // STUDENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchStudents(): Promise<Student[]> {
-  const cached = getStudents();
   try {
     const res = await fetch('/api/students');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.STUDENTS, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.STUDENTS, []);
-      return [];
+      setItem(KEYS.STUDENTS, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API fetch failed, falling back to cached local storage:', e);
   }
-  return cached;
+  return getStudents();
 }
 
 export function getStudents(): Student[] {
-  return getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+  const raw = getItem<Student[]>(KEYS.STUDENTS, INITIAL_STUDENTS);
+  const map = new Map<string, Student>();
+  raw.forEach((s) => {
+    if (s && s.id) {
+      map.set(s.id, s);
+    }
+  });
+  return Array.from(map.values());
 }
 
 export async function saveStudentApi(studentData: any): Promise<Student | null> {
-  try {
-    const method = studentData.id ? 'PUT' : 'POST';
-    const res = await fetch('/api/students', {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(studentData),
-    });
-    const json = await res.json();
-    if (json.success && json.data) {
-      await fetchStudents();
-      return json.data;
-    }
-  } catch (e) {
-    console.error('saveStudentApi error:', e);
+  const method = studentData.id ? 'PUT' : 'POST';
+  const res = await fetch('/api/students', {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(studentData),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.message || 'Failed to save student record');
   }
-  return null;
+  await fetchStudents();
+  return json.data;
 }
 
 export function saveStudent(student: any): Student {
@@ -234,25 +263,18 @@ export function deleteStudent(studentId: string): boolean {
 // ATTENDANCE API CLIENT
 // -------------------------------------------------------------
 export async function fetchAttendanceRecords(date?: string): Promise<AttendanceRecord[]> {
-  const cached = getAttendanceRecords(date);
   try {
     const url = date ? `/api/attendance?date=${encodeURIComponent(date)}` : '/api/attendance';
     const res = await fetch(url);
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.ATTENDANCE, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.ATTENDANCE, []);
-      return [];
+      setItem(KEYS.ATTENDANCE, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API attendance fetch error:', e);
   }
-  return cached;
+  return getAttendanceRecords(date);
 }
 
 export function getAttendanceRecords(date?: string): AttendanceRecord[] {
@@ -288,24 +310,17 @@ export function markAttendance(date: string, updates: any[]): AttendanceRecord[]
 // ACHIEVEMENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchAchievements(): Promise<Achievement[]> {
-  const cached = getAchievements();
   try {
     const res = await fetch('/api/achievements');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.ACHIEVEMENTS, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.ACHIEVEMENTS, []);
-      return [];
+      setItem(KEYS.ACHIEVEMENTS, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API achievements fetch error:', e);
   }
-  return cached;
+  return getAchievements();
 }
 
 export function getAchievements(): Achievement[] {
@@ -398,24 +413,17 @@ export function deleteAchievement(id: string): boolean {
 // UPCOMING EVENTS API CLIENT
 // -------------------------------------------------------------
 export async function fetchEvents(): Promise<UpcomingEvent[]> {
-  const cached = getEvents();
   try {
     const res = await fetch('/api/events');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.EVENTS, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.EVENTS, []);
-      return [];
+      setItem(KEYS.EVENTS, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API events fetch error:', e);
   }
-  return cached;
+  return getEvents();
 }
 
 export function getEvents(): UpcomingEvent[] {
@@ -508,24 +516,17 @@ export function deleteEvent(id: string): boolean {
 // CONTACT MESSAGES API CLIENT
 // -------------------------------------------------------------
 export async function fetchContactMessages(): Promise<ContactMessage[]> {
-  const cached = getContactMessages();
   try {
     const res = await fetch('/api/contact');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.MESSAGES, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.MESSAGES, []);
-      return [];
+      setItem(KEYS.MESSAGES, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API contact fetch error:', e);
   }
-  return cached;
+  return getContactMessages();
 }
 
 export function getContactMessages(): ContactMessage[] {
@@ -611,46 +612,35 @@ export function deleteContactMessage(id: string): boolean {
 // REGISTRATIONS API CLIENT
 // -------------------------------------------------------------
 export async function fetchRegistrations(): Promise<StudentRegistration[]> {
-  const cached = getRegistrations();
   try {
     const res = await fetch('/api/registrations');
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
-      if (json.data.length > 0) {
-        setItem(KEYS.REGISTRATIONS, json.data);
-        return json.data;
-      } else if (cached.length > 0) {
-        return cached;
-      }
-      setItem(KEYS.REGISTRATIONS, []);
-      return [];
+      setItem(KEYS.REGISTRATIONS, json.data);
+      return json.data;
     }
   } catch (e) {
     console.warn('API registrations fetch error:', e);
   }
-  return cached;
+  return getRegistrations();
 }
 
 export function getRegistrations(): StudentRegistration[] {
   return getItem<StudentRegistration[]>(KEYS.REGISTRATIONS, INITIAL_REGISTRATIONS);
 }
 
-export async function submitRegistrationApi(regData: any): Promise<StudentRegistration | null> {
-  try {
-    const res = await fetch('/api/registrations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(regData),
-    });
-    const json = await res.json();
-    if (json.success && json.data) {
-      await fetchRegistrations();
-      return json.data;
-    }
-  } catch (e) {
-    console.error('submitRegistrationApi error:', e);
+export async function submitRegistrationApi(regData: any): Promise<StudentRegistration> {
+  const res = await fetch('/api/registrations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(regData),
+  });
+  const json = await res.json();
+  if (!json.success) {
+    throw new Error(json.message || 'Failed to submit student registration');
   }
-  return null;
+  await fetchRegistrations();
+  return json.data;
 }
 
 export function submitRegistration(regData: any): StudentRegistration {
@@ -737,3 +727,29 @@ export function rejectRegistration(id: string): void {
     setItem(KEYS.REGISTRATIONS, list);
   }
 }
+
+// -------------------------------------------------------------
+// CLEAR ALL LOCAL DATA
+// -------------------------------------------------------------
+export function clearAllLocalStorage(): void {
+  if (typeof window !== 'undefined') {
+    Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
+    localStorage.clear();
+  }
+}
+
+export async function clearAllLocalDataApi(): Promise<boolean> {
+  try {
+    clearAllLocalStorage();
+    const res = await fetch('/api/reset-data', { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      clearAllLocalStorage();
+      return true;
+    }
+  } catch (e) {
+    console.error('clearAllLocalDataApi error:', e);
+  }
+  return false;
+}
+

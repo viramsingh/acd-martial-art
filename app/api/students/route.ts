@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
-import { getStudentsDB, saveStudentDB, updateStudentBeltDB, deleteStudentDB, syncFromGoogleSheets } from '@/lib/db';
+import { getStudentsDB, saveStudentDB, updateStudentBeltDB, deleteStudentDB, syncFromGoogleSheets, isDuplicateStudentOrRegistration } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
 export async function GET() {
-  await syncFromGoogleSheets();
   const students = getStudentsDB();
-  return NextResponse.json({ success: true, data: students });
+  if (students.length === 0) {
+    await syncFromGoogleSheets();
+  } else {
+    syncFromGoogleSheets().catch(() => {});
+  }
+  return NextResponse.json({ success: true, data: getStudentsDB() });
 }
 
 export async function POST(request: Request) {
@@ -16,6 +20,18 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    const cleanPhone = String(body?.phone || '').replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      return NextResponse.json({ success: false, message: 'Phone number must be exactly 10 numeric digits.' }, { status: 400 });
+    }
+
+    if (!body.id) {
+      const dupCheck = isDuplicateStudentOrRegistration(body);
+      if (dupCheck.isDuplicate) {
+        return NextResponse.json({ success: false, message: dupCheck.reason || 'Student is already registered!' }, { status: 409 });
+      }
+    }
+
     const newStudent = saveStudentDB(body);
     return NextResponse.json({ success: true, data: newStudent }, { status: 201 });
   } catch (error) {

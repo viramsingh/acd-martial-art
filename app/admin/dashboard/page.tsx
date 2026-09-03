@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
   Users, Calendar, Trophy, Mail, UserCheck, Search, Filter, Plus, Edit, Trash2, Shield, LogOut,
-  CheckCircle2, XCircle, Clock, Save, RefreshCw, Award, Check, Settings, FileSpreadsheet, Sparkles, AlertTriangle, Key, Eye, EyeOff, Loader2
+  CheckCircle2, XCircle, Clock, Save, RefreshCw, Award, Check, Settings, FileSpreadsheet, Sparkles, AlertTriangle, Key, Eye, EyeOff, Loader2, Upload
 } from 'lucide-react';
 import {
   getStudents, saveStudent, updateStudentBelt, deleteStudent,
@@ -19,7 +19,8 @@ import {
   deleteStudentApi, markAttendanceApi, addAchievementApi, updateAchievementApi,
   deleteAchievementApi, addEventApi, updateEventApi, deleteEventApi,
   markMessageReadApi, deleteContactMessageApi, approveRegistrationApi, rejectRegistrationApi,
-  getGoogleSheetsConfig, saveGoogleSheetsConfig, fetchGoogleSheetsConfig, saveGoogleSheetsConfigApi, GoogleSheetsConfig
+  getGoogleSheetsConfig, saveGoogleSheetsConfig, fetchGoogleSheetsConfig, saveGoogleSheetsConfigApi, GoogleSheetsConfig,
+  clearAllLocalDataApi, clearAllLocalStorage, getMaxIdNumber, formatDateYMD
 } from '@/lib/sheets';
 import { Student, AttendanceRecord, Achievement, ContactMessage, StudentRegistration, BeltLevel, UpcomingEvent } from '@/types';
 import { useToast } from '@/context/ToastContext';
@@ -144,13 +145,41 @@ export default function AdminDashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
+  // Image File Upload Reader Helper
+  const handleImageFileChange = (file: File | undefined, callback: (dataUrl: string) => void) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please select a valid image file (JPG, PNG, WebP).', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Image file size should be less than 5MB.', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        callback(event.target.result as string);
+        showToast('Image attached successfully!', 'success');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Edit Handlers
   const handleUpdateStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
+
+    const cleanPhone = editingStudent.phone.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      showToast('Phone number must be exactly 10 numeric digits.', 'error');
+      return;
+    }
+
     setIsSubmittingStudent(true);
     try {
-      await saveStudentApi(editingStudent);
+      await saveStudentApi({ ...editingStudent, phone: cleanPhone });
       await refreshData();
       setEditingStudent(null);
       showToast(`Student record for ${editingStudent.fullName} (${editingStudent.id}) updated!`, 'success');
@@ -247,37 +276,48 @@ export default function AdminDashboardPage() {
     router.push('/admin/login');
   };
 
-  // Sync Attendance Form State when Date / Batch Changes
+  // Sync Attendance Form State when Date / Batch / Attendance records change
   useEffect(() => {
-    const records = getAttendanceRecords(attendanceDate);
+    const targetDate = formatDateYMD(attendanceDate);
+    const records = (attendance || []).filter((r) => formatDateYMD(r.date) === targetDate);
     const initialMap: Record<string, 'PRESENT' | 'ABSENT' | 'LATE'> = {};
+
+    const recordMap = new Map<string, 'PRESENT' | 'ABSENT' | 'LATE'>();
+    records.forEach((r) => {
+      if (r.studentId) recordMap.set(r.studentId, r.status);
+    });
+
     students.forEach((s) => {
-      const existing = records.find((r) => r.studentId === s.id);
-      if (existing) {
-        initialMap[s.id] = existing.status;
+      if (recordMap.has(s.id)) {
+        initialMap[s.id] = recordMap.get(s.id)!;
       } else {
         initialMap[s.id] = 'PRESENT'; // default
       }
     });
     setAttendanceState(initialMap);
-  }, [attendanceDate, attendanceBatch, students]);
+  }, [attendanceDate, attendanceBatch, students, attendance]);
 
   // Handle Attendance Save
   const handleSaveAttendance = async () => {
     setIsSavingAttendance(true);
-    try {
-      const updates = students
-        .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
-        .map((s) => ({
-          studentId: s.id,
-          studentName: s.fullName,
-          batch: s.batch,
-          status: attendanceState[s.id] || 'PRESENT',
-        }));
+    const targetDate = formatDateYMD(attendanceDate);
+    const updates = students
+      .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
+      .map((s) => ({
+        studentId: s.id,
+        studentName: s.fullName,
+        batch: s.batch,
+        status: attendanceState[s.id] || 'PRESENT',
+      }));
 
-      await markAttendanceApi(attendanceDate, updates);
-      await refreshData();
-      showToast(`Attendance records saved for ${attendanceDate}!`, 'success');
+    showToast(`Attendance records saved for ${targetDate}!`, 'success');
+
+    try {
+      const updated = await markAttendanceApi(targetDate, updates);
+      if (Array.isArray(updated)) {
+        setAttendance(updated);
+      }
+      refreshData();
     } finally {
       setIsSavingAttendance(false);
     }
@@ -286,10 +326,31 @@ export default function AdminDashboardPage() {
   // Handle New Student Submit
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const cleanPhone = newStudentForm.phone.replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      showToast('Phone number must be exactly 10 numeric digits.', 'error');
+      return;
+    }
+
+    if (newStudentForm.emergencyPhone) {
+      const cleanEmergency = newStudentForm.emergencyPhone.replace(/\D/g, '');
+      if (cleanEmergency.length !== 10) {
+        showToast('Emergency phone number must be exactly 10 numeric digits.', 'error');
+        return;
+      }
+    }
+
     setIsSubmittingStudent(true);
+
+    const formToSave = {
+      ...newStudentForm,
+      phone: cleanPhone,
+      emergencyPhone: newStudentForm.emergencyPhone ? newStudentForm.emergencyPhone.replace(/\D/g, '') : '',
+    };
+
     try {
-      await saveStudentApi(newStudentForm);
-      await refreshData();
+      const created = await saveStudentApi(formToSave);
       setShowAddStudentModal(false);
       showToast(`New student ${newStudentForm.fullName} created!`, 'success');
       setNewStudentForm({
@@ -304,12 +365,16 @@ export default function AdminDashboardPage() {
         batch: 'Evening 5:00 To 6:00',
         beltLevel: 'White Belt',
       });
+      await refreshData();
+    } catch (err: any) {
+      const errMsg = err?.message || 'Already registered! Duplicate entry detected.';
+      showToast(errMsg, 'error');
     } finally {
       setIsSubmittingStudent(false);
     }
   };
 
-  // Handle Belt Promotion
+  // Handle Belt Promotion (INSTANT OPTIMISTIC UI)
   const handlePromoteBelt = async (studentId: string, currentBelt: BeltLevel) => {
     const belts: BeltLevel[] = [
       'White Belt', 'Yellow Belt', 'Green Belt', 'Green-1 Belt', 'Blue Belt', 'Blue-1 Belt', 'Red Belt', 'Red-1 Belt', 'Black Belt'
@@ -317,141 +382,214 @@ export default function AdminDashboardPage() {
     const currentIndex = belts.indexOf(currentBelt);
     if (currentIndex !== -1 && currentIndex < belts.length - 1) {
       const nextBelt = belts[currentIndex + 1];
+
+      // INSTANT UI UPDATE
+      setStudents((prev) =>
+        prev.map((s) => (s.id === studentId ? { ...s, beltLevel: nextBelt } : s))
+      );
+      showToast(`Student promoted to ${nextBelt}!`, 'success');
+
       setActionLoadingId(studentId);
       try {
         await updateStudentBeltApi(studentId, nextBelt);
-        await refreshData();
-        showToast(`Student promoted to ${nextBelt}!`, 'success');
+        refreshData();
       } finally {
         setActionLoadingId(null);
       }
     }
   };
 
-  // Confirm and Process Student Delete
+  // Confirm and Process Student Delete (INSTANT OPTIMISTIC UI)
   const confirmDeleteStudent = async () => {
     if (studentToDelete) {
-      setActionLoadingId(studentToDelete.id);
+      const targetId = studentToDelete.id;
+      const targetName = studentToDelete.fullName;
+
+      // INSTANT UI UPDATE
+      setStudents((prev) => prev.filter((s) => s.id !== targetId));
+      setStudentToDelete(null);
+      showToast(`Student ${targetName} (${targetId}) permanently deleted.`, 'error');
+
+      setActionLoadingId(targetId);
       try {
-        await deleteStudentApi(studentToDelete.id);
-        await refreshData();
-        showToast(`Student ${studentToDelete.fullName} (${studentToDelete.id}) permanently deleted.`, 'error');
-        setStudentToDelete(null);
+        await deleteStudentApi(targetId);
+        refreshData();
       } finally {
         setActionLoadingId(null);
       }
     }
   };
 
-  // Handle Approve Registration
+  // Handle Approve Registration (INSTANT OPTIMISTIC UI)
   const handleApproveReg = async (id: string, name: string) => {
+    // INSTANT UI UPDATE
+    setRegistrations((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: 'APPROVED' } : r))
+    );
+
+    const maxNum = getMaxIdNumber(students);
+    const regObj = registrations.find((r) => r.id === id);
+    if (regObj) {
+      const tempStudent: Student = {
+        id: `ACD-2026-${String(maxNum + 1).padStart(3, '0')}`,
+        fullName: regObj.fullName,
+        dob: regObj.dob,
+        gender: regObj.gender as any,
+        phone: regObj.phone,
+        email: regObj.email,
+        address: regObj.address,
+        guardianName: regObj.guardianName,
+        emergencyPhone: regObj.emergencyPhone,
+        schoolName: regObj.schoolName,
+        batch: regObj.batch as any,
+        beltLevel: regObj.beltLevel,
+        status: 'ACTIVE',
+        joiningDate: new Date().toISOString().split('T')[0],
+      };
+      setStudents((prev) => [tempStudent, ...prev]);
+    }
+    showToast(`Registration approved! ${name} enrolled as Active Student.`, 'success');
+
     setActionLoadingId(id);
     try {
-      const student = await approveRegistrationApi(id);
-      await refreshData();
-      if (student) {
-        showToast(`Registration approved! ${name} enrolled as Active Student (${student.id}).`, 'success');
-      }
+      await approveRegistrationApi(id);
+      refreshData();
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  // Handle Reject Registration
+  // Handle Reject Registration (INSTANT OPTIMISTIC UI)
   const handleRejectReg = async (id: string) => {
+    // INSTANT UI UPDATE
+    setRegistrations((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: 'REJECTED' } : r))
+    );
+    showToast('Registration application rejected.', 'error');
+
     setActionLoadingId(id);
     try {
       await rejectRegistrationApi(id);
-      await refreshData();
-      showToast('Registration application rejected.', 'error');
+      refreshData();
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  // Handle Add Achievement
+  // Handle Add Achievement (INSTANT OPTIMISTIC UI)
   const handleCreateAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmittingAchievement(true);
+
+    const tempAch: Achievement = {
+      id: `ACH-${Date.now()}`,
+      ...newAchievementForm,
+    };
+
+    // INSTANT UI UPDATE
+    setAchievements((prev) => [tempAch, ...prev]);
+    setShowAddAchievementModal(false);
+    showToast('New achievement published to Hall of Fame!', 'success');
+
+    const formToSave = { ...newAchievementForm };
+    setNewAchievementForm({
+      title: '',
+      studentName: '',
+      event: '',
+      position: '',
+      date: '',
+      imageUrl: '',
+      description: '',
+    });
+
     try {
-      await addAchievementApi(newAchievementForm);
-      await refreshData();
-      setShowAddAchievementModal(false);
-      showToast('New achievement published to Hall of Fame!', 'success');
-      setNewAchievementForm({
-        title: '',
-        studentName: '',
-        event: '',
-        position: '',
-        date: '',
-        imageUrl: '',
-        description: '',
-      });
+      await addAchievementApi(formToSave);
+      refreshData();
     } finally {
       setIsSubmittingAchievement(false);
     }
   };
 
-  // Handle Delete Achievement
+  // Handle Delete Achievement (INSTANT OPTIMISTIC UI)
   const handleDeleteAchievement = async (id: string) => {
     if (confirm('Delete this achievement record?')) {
+      // INSTANT UI UPDATE
+      setAchievements((prev) => prev.filter((a) => a.id !== id));
+      showToast('Achievement record deleted.', 'info');
+
       setActionLoadingId(id);
       try {
         await deleteAchievementApi(id);
-        await refreshData();
-        showToast('Achievement record deleted.', 'info');
+        refreshData();
       } finally {
         setActionLoadingId(null);
       }
     }
   };
 
-  // Handle Add Event
+  // Handle Add Event (INSTANT OPTIMISTIC UI)
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmittingEvent(true);
+
+    const tempEvt: UpcomingEvent = {
+      id: `EVT-${Date.now()}`,
+      ...newEventForm,
+    };
+
+    // INSTANT UI UPDATE
+    setEvents((prev) => [tempEvt, ...prev]);
+    setShowAddEventModal(false);
+    showToast('New upcoming event published to Home Page!', 'success');
+
+    const formToSave = { ...newEventForm };
+    setNewEventForm({
+      title: '',
+      category: 'Special Workshop',
+      date: '',
+      time: '',
+      location: '',
+      desc: '',
+      image: '',
+      badgeColor: 'bg-red-600 text-white',
+    });
+
     try {
-      await addEventApi(newEventForm);
-      await refreshData();
-      setShowAddEventModal(false);
-      showToast('New upcoming event published to Home Page!', 'success');
-      setNewEventForm({
-        title: '',
-        category: 'Special Workshop',
-        date: '',
-        time: '',
-        location: '',
-        desc: '',
-        image: '',
-        badgeColor: 'bg-red-600 text-white',
-      });
+      await addEventApi(formToSave);
+      refreshData();
     } finally {
       setIsSubmittingEvent(false);
     }
   };
 
-  // Handle Delete Event
+  // Handle Delete Event (INSTANT OPTIMISTIC UI)
   const handleDeleteEvent = async (id: string) => {
     if (confirm('Delete this upcoming event record?')) {
+      // INSTANT UI UPDATE
+      setEvents((prev) => prev.filter((evt) => evt.id !== id));
+      showToast('Upcoming event deleted.', 'info');
+
       setActionLoadingId(id);
       try {
         await deleteEventApi(id);
-        await refreshData();
-        showToast('Upcoming event deleted.', 'info');
+        refreshData();
       } finally {
         setActionLoadingId(null);
       }
     }
   };
 
-  // Handle Delete Contact Message
+  // Handle Delete Contact Message (INSTANT OPTIMISTIC UI)
   const handleDeleteMessage = async (id: string) => {
     if (confirm('Delete this contact enquiry message?')) {
+      // INSTANT UI UPDATE
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      showToast('Contact enquiry message deleted.', 'info');
+
       setActionLoadingId(id);
       try {
         await deleteContactMessageApi(id);
-        await refreshData();
-        showToast('Contact enquiry message deleted.', 'info');
+        refreshData();
       } finally {
         setActionLoadingId(null);
       }
@@ -468,6 +606,29 @@ export default function AdminDashboardPage() {
       showToast('Google Sheets API Integration settings updated and saved to server!', 'success');
     } finally {
       setIsSavingSheets(false);
+    }
+  };
+
+  const [isClearingData, setIsClearingData] = useState(false);
+
+  const handleClearAllData = async () => {
+    if (confirm('⚠️ WARNING: This will permanently delete ALL local students, attendance records, registrations, events, achievements, and contact messages from local storage and the database!\n\nAre you sure you want to proceed?')) {
+      setIsClearingData(true);
+      try {
+        await clearAllLocalDataApi();
+        clearAllLocalStorage();
+        setStudents([]);
+        setRegistrations([]);
+        setAttendance([]);
+        setAchievements([]);
+        setEvents([]);
+        setMessages([]);
+        showToast('All local website database records & storage cleared!', 'info');
+      } catch (err) {
+        showToast('Failed to clear data.', 'error');
+      } finally {
+        setIsClearingData(false);
+      }
     }
   };
 
@@ -678,8 +839,8 @@ export default function AdminDashboardPage() {
                   <p className="text-xs text-slate-400 py-6 text-center">No pending student registration applications.</p>
                 ) : (
                   <div className="space-y-3">
-                    {registrations.filter((r) => r.status === 'PENDING').map((reg) => (
-                      <div key={reg.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4">
+                    {registrations.filter((r) => r.status === 'PENDING').map((reg, idx) => (
+                      <div key={`${reg.id || 'reg'}-${idx}`} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4">
                         <div className="space-y-1">
                           <p className="text-sm font-bold text-white">{reg.fullName} <span className="text-xs font-normal text-slate-400">({reg.batch} Batch)</span></p>
                           <p className="text-xs text-slate-400">School: <span className="text-slate-200">{reg.schoolName || 'N/A'}</span> • Phone: {reg.phone} • Belt: {reg.beltLevel}</p>
@@ -808,8 +969,8 @@ export default function AdminDashboardPage() {
                     No student records match search criteria.
                   </div>
                 ) : (
-                  paginatedStudents.map((s) => (
-                    <div key={s.id} className="p-4 space-y-3">
+                  paginatedStudents.map((s, idx) => (
+                    <div key={`${s.id}-${idx}`} className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="font-mono font-bold text-amber-400 text-xs">{s.id}</span>
                         <span className="px-2.5 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border belt-white">
@@ -872,8 +1033,8 @@ export default function AdminDashboardPage() {
                         </td>
                       </tr>
                     ) : (
-                      paginatedStudents.map((s) => (
-                        <tr key={s.id} className="hover:bg-slate-800/50 transition-colors">
+                      paginatedStudents.map((s, idx) => (
+                        <tr key={`${s.id}-${idx}`} className="hover:bg-slate-800/50 transition-colors">
                           <td className="py-3.5 px-4 font-mono font-bold text-amber-400">{s.id}</td>
                           <td className="py-3.5 px-4 font-semibold text-white">
                             {s.fullName}
@@ -1007,10 +1168,10 @@ export default function AdminDashboardPage() {
                     No student records match search criteria or selected batch.
                   </div>
                 ) : (
-                  paginatedAttendanceStudents.map((s) => {
+                  paginatedAttendanceStudents.map((s, idx) => {
                     const currentStatus = attendanceState[s.id] || 'PRESENT';
                     return (
-                      <div key={s.id} className="p-4 space-y-3">
+                      <div key={`${s.id}-${idx}`} className="p-4 space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-amber-400 text-xs">{s.id}</span>
                           <span className="text-[11px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">{s.beltLevel}</span>
@@ -1077,10 +1238,10 @@ export default function AdminDashboardPage() {
                         </td>
                       </tr>
                     ) : (
-                      paginatedAttendanceStudents.map((s) => {
+                      paginatedAttendanceStudents.map((s, idx) => {
                         const currentStatus = attendanceState[s.id] || 'PRESENT';
                         return (
-                          <tr key={s.id} className="hover:bg-slate-800/40">
+                          <tr key={`${s.id}-${idx}`} className="hover:bg-slate-800/40">
                             <td className="py-3 px-4 font-mono text-amber-400 font-bold">{s.id}</td>
                             <td className="py-3 px-4 font-semibold text-white">{s.fullName}</td>
                             <td className="py-3 px-4 text-slate-300">{s.batch}</td>
@@ -1160,10 +1321,10 @@ export default function AdminDashboardPage() {
 
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {paginatedAchievements.map((ach) => (
-                  <div key={ach.id} className="glass-card p-5 rounded-2xl space-y-3 border border-slate-700 relative">
+                {paginatedAchievements.map((ach, idx) => (
+                  <div key={`${ach.id}-${idx}`} className="glass-card p-5 rounded-2xl space-y-3 border border-slate-700 relative">
                     <div className="relative h-40 w-full rounded-xl overflow-hidden">
-                      <Image src={ach.imageUrl || '/assets/achievement_trophy.jpg'} alt={ach.title} fill className="object-cover" />
+                      <Image unoptimized src={ach.imageUrl || '/assets/achievement_trophy.jpg'} alt={ach.title} fill className="object-cover" />
                     </div>
                     <h4 className="text-base font-bold font-outfit text-white">{ach.title}</h4>
                     <p className="text-xs text-amber-400 font-semibold">{ach.position} • {ach.event}</p>
@@ -1217,12 +1378,12 @@ export default function AdminDashboardPage() {
 
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {paginatedEvents.map((evt) => (
-                  <div key={evt.id} className="glass-card p-5 rounded-2xl space-y-3 border border-slate-700 relative flex flex-col justify-between">
+                {paginatedEvents.map((evt, idx) => (
+                  <div key={`${evt.id}-${idx}`} className="glass-card p-5 rounded-2xl space-y-3 border border-slate-700 relative flex flex-col justify-between">
                     <div className="space-y-3">
                       {evt.image && (
                         <div className="relative h-44 w-full rounded-xl overflow-hidden">
-                          <Image src={evt.image} alt={evt.title} fill className="object-cover object-top" />
+                          <Image unoptimized src={evt.image} alt={evt.title} fill className="object-cover object-top" />
                         </div>
                       )}
                       <div className="flex items-center justify-between">
@@ -1293,8 +1454,8 @@ export default function AdminDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
-                    {paginatedRegistrations.map((r) => (
-                      <tr key={r.id} className="hover:bg-slate-800/50">
+                    {paginatedRegistrations.map((r, idx) => (
+                      <tr key={`${r.id}-${idx}`} className="hover:bg-slate-800/50">
                         <td className="py-3.5 px-4 font-mono font-bold text-amber-400">{r.id}</td>
                         <td className="py-3.5 px-4 font-semibold text-white">{r.fullName} ({r.dob})</td>
                         <td className="py-3.5 px-4 text-slate-200 font-medium">{r.schoolName || 'N/A'}</td>
@@ -1362,8 +1523,8 @@ export default function AdminDashboardPage() {
                   No contact enquiries received yet.
                 </div>
               ) : (
-                paginatedMessages.map((m) => (
-                  <div key={m.id} className="glass-card p-5 rounded-2xl space-y-2 border border-slate-700">
+                paginatedMessages.map((m, idx) => (
+                  <div key={`${m.id}-${idx}`} className="glass-card p-5 rounded-2xl space-y-3 border border-slate-700">
                     <div className="flex items-center justify-between">
                       <h4 className="text-base font-bold font-outfit text-white">{m.name} <span className="text-xs font-normal text-slate-400">({m.phone} • {m.email})</span></h4>
                       <div className="flex items-center gap-3">
@@ -1544,6 +1705,7 @@ export default function AdminDashboardPage() {
                 <input
                   type="date"
                   required
+                  max={new Date().toISOString().split('T')[0]}
                   value={newStudentForm.dob}
                   onChange={(e) => setNewStudentForm({ ...newStudentForm, dob: e.target.value })}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white [color-scheme:dark]"
@@ -1562,10 +1724,18 @@ export default function AdminDashboardPage() {
                 <input
                   type="tel"
                   required
-                  placeholder="Phone"
+                  maxLength={10}
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  placeholder="Phone (10 digits)"
                   value={newStudentForm.phone}
-                  onChange={(e) => setNewStudentForm({ ...newStudentForm, phone: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
+                  onKeyDown={(e) => {
+                    if (!/[0-9]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete', 'Enter'].includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                      e.preventDefault();
+                    }
+                  }}
+                  onChange={(e) => setNewStudentForm({ ...newStudentForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
                 />
                 <input
                   type="text"
@@ -1684,13 +1854,63 @@ export default function AdminDashboardPage() {
                 />
               </div>
 
-              <input
-                type="text"
-                placeholder="Photo / Image Web URL (e.g. https://images.com/... or /assets/IMG_7316.PNG)"
-                value={newAchievementForm.imageUrl}
-                onChange={(e) => setNewAchievementForm({ ...newAchievementForm, imageUrl: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
-              />
+              {/* IMAGE UPLOAD FIELD */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Achievement Photo / Image</span>
+                  {newAchievementForm.imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setNewAchievementForm({ ...newAchievementForm, imageUrl: '' })}
+                      className="text-[10px] text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove Image
+                    </button>
+                  )}
+                </label>
+
+                {newAchievementForm.imageUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900/80 p-2.5 flex items-center gap-3">
+                    <img
+                      src={newAchievementForm.imageUrl}
+                      alt="Preview"
+                      className="w-14 h-14 object-cover rounded-xl border border-slate-700"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">Photo Attached</p>
+                      <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Ready to publish
+                      </p>
+                    </div>
+                    <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5 border border-slate-700">
+                      <Upload className="w-3.5 h-3.5 text-amber-400" />
+                      Change
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setNewAchievementForm({ ...newAchievementForm, imageUrl: url }))}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-slate-700 hover:border-amber-500/70 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition-all text-center group">
+                    <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 group-hover:text-amber-400 group-hover:bg-amber-500/10 flex items-center justify-center transition-all border border-slate-700">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-200 group-hover:text-white">Click to Upload Image File</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG, WEBP supported (Max 5MB)</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setNewAchievementForm({ ...newAchievementForm, imageUrl: url }))}
+                    />
+                  </label>
+                )}
+              </div>
 
               <textarea
                 required
@@ -1787,13 +2007,63 @@ export default function AdminDashboardPage() {
                 />
               </div>
 
-              <input
-                type="text"
-                placeholder="Event Poster Web URL (e.g. https://images.com/... or /assets/IMG_4159.PNG)"
-                value={newEventForm.image}
-                onChange={(e) => setNewEventForm({ ...newEventForm, image: e.target.value })}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
-              />
+              {/* EVENT POSTER UPLOAD FIELD */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Event Poster / Banner Image</span>
+                  {newEventForm.image && (
+                    <button
+                      type="button"
+                      onClick={() => setNewEventForm({ ...newEventForm, image: '' })}
+                      className="text-[10px] text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove Poster
+                    </button>
+                  )}
+                </label>
+
+                {newEventForm.image ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900/80 p-2.5 flex items-center gap-3">
+                    <img
+                      src={newEventForm.image}
+                      alt="Preview"
+                      className="w-14 h-14 object-cover rounded-xl border border-slate-700"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">Poster Attached</p>
+                      <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Ready to publish
+                      </p>
+                    </div>
+                    <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5 border border-slate-700">
+                      <Upload className="w-3.5 h-3.5 text-red-400" />
+                      Change
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setNewEventForm({ ...newEventForm, image: url }))}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-slate-700 hover:border-red-500/70 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition-all text-center group">
+                    <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 group-hover:text-red-400 group-hover:bg-red-500/10 flex items-center justify-center transition-all border border-slate-700">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-200 group-hover:text-white">Click to Upload Event Poster</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG, WEBP supported (Max 5MB)</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setNewEventForm({ ...newEventForm, image: url }))}
+                    />
+                  </label>
+                )}
+              </div>
 
               <textarea
                 required
@@ -1929,7 +2199,7 @@ export default function AdminDashboardPage() {
                     required
                     value={editingStudent.dob}
                     onChange={(e) => setEditingStudent({ ...editingStudent, dob: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white [color-scheme:dark]"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1947,13 +2217,21 @@ export default function AdminDashboardPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-400">Contact Phone *</label>
+                  <label className="text-[11px] font-semibold text-slate-400">Contact Phone (10 digits) *</label>
                   <input
                     type="tel"
                     required
+                    maxLength={10}
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
                     value={editingStudent.phone}
-                    onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
+                    onKeyDown={(e) => {
+                      if (!/[0-9]/.test(e.key) && !['Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'Delete', 'Enter'].includes(e.key) && !e.metaKey && !e.ctrlKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
                   />
                 </div>
                 <div className="space-y-1">
@@ -2094,14 +2372,53 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-400">Photo / Image Web URL</label>
-                <input
-                  type="text"
-                  value={editingAchievement.imageUrl || ''}
-                  onChange={(e) => setEditingAchievement({ ...editingAchievement, imageUrl: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
-                />
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+                  <span>Photo / Achievement Image</span>
+                  {editingAchievement.imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingAchievement({ ...editingAchievement, imageUrl: '' })}
+                      className="text-[10px] text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove Image
+                    </button>
+                  )}
+                </label>
+
+                {editingAchievement.imageUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900/80 p-2.5 flex items-center gap-3">
+                    <img
+                      src={editingAchievement.imageUrl}
+                      alt="Preview"
+                      className="w-12 h-12 object-cover rounded-xl border border-slate-700"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">Photo Attached</p>
+                    </div>
+                    <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5 border border-slate-700">
+                      <Upload className="w-3.5 h-3.5 text-amber-400" />
+                      Change
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setEditingAchievement({ ...editingAchievement, imageUrl: url }))}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="border border-dashed border-slate-700 hover:border-amber-500/70 rounded-2xl p-3.5 flex items-center justify-center gap-2 cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition-all text-center">
+                    <Upload className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-slate-200">Click to Upload Image File</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setEditingAchievement({ ...editingAchievement, imageUrl: url }))}
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="space-y-1">
@@ -2216,14 +2533,53 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-400">Event Poster Web URL</label>
-                <input
-                  type="text"
-                  value={editingEvent.image || ''}
-                  onChange={(e) => setEditingEvent({ ...editingEvent, image: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white font-mono"
-                />
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+                  <span>Event Poster / Image</span>
+                  {editingEvent.image && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingEvent({ ...editingEvent, image: '' })}
+                      className="text-[10px] text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" /> Remove Poster
+                    </button>
+                  )}
+                </label>
+
+                {editingEvent.image ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900/80 p-2.5 flex items-center gap-3">
+                    <img
+                      src={editingEvent.image}
+                      alt="Preview"
+                      className="w-12 h-12 object-cover rounded-xl border border-slate-700"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-white truncate">Poster Attached</p>
+                    </div>
+                    <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 cursor-pointer flex items-center gap-1.5 border border-slate-700">
+                      <Upload className="w-3.5 h-3.5 text-red-400" />
+                      Change
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setEditingEvent({ ...editingEvent, image: url }))}
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <label className="border border-dashed border-slate-700 hover:border-red-500/70 rounded-2xl p-3.5 flex items-center justify-center gap-2 cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition-all text-center">
+                    <Upload className="w-4 h-4 text-red-400" />
+                    <span className="text-xs font-bold text-slate-200">Click to Upload Event Poster</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageFileChange(e.target.files?.[0], (url) => setEditingEvent({ ...editingEvent, image: url }))}
+                    />
+                  </label>
+                )}
               </div>
 
               <div className="space-y-1">

@@ -90,6 +90,7 @@ export default function AchievementsPage() {
               <div className="space-y-4">
                 <div className="relative h-56 w-full">
                   <Image
+                    unoptimized
                     src={item.imageUrl || '/assets/achievement_trophy.jpg'}
                     alt={item.title}
                     fill
