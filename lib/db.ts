@@ -158,48 +158,43 @@ export async function syncFromGoogleSheets(force: boolean = false, request?: Req
 
       const deletedSet = new Set(db.deletedIds || []);
 
-      // 1. Merge Students (preserve all valid unique student records)
+      // 1. Clean 1-to-1 mapping of Students from Google Sheets (no duplication)
       if (Array.isArray(data.students) && data.students.length > 0) {
         const studentMap = new Map<string, Student>();
-        // Add existing valid local students first
-        (db.students || []).forEach((s) => {
-          if (s && s.id && !deletedSet.has(s.id)) {
-            studentMap.set(s.id, s);
-          }
-        });
-
-        let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
 
         data.students.forEach((s: any) => {
           if (!s) return;
-          const sName = s.fullName || s['Full Name'] || s.name || '';
-          if (!sName.trim()) return;
+          const sName = (s.fullName || s['Full Name'] || s.name || '').trim();
+          if (!sName) return;
 
           let id = s.id ? String(s.id).trim() : '';
+
+          // If deleted locally, skip
+          if (id && deletedSet.has(id)) return;
+
           if (!id || studentMap.has(id)) {
-            currentMax += 1;
-            id = `ACD-2026-${String(currentMax).padStart(3, '0')}`;
+            let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
+            id = `ACD-2026-${String(currentMax + 1).padStart(3, '0')}`;
           }
 
-          if (!deletedSet.has(id)) {
-            studentMap.set(id, {
-              id,
-              fullName: sName,
-              dob: s.dob || s.DOB || '',
-              gender: s.gender || s.Gender || 'Male',
-              phone: s.phone || s.Phone || '',
-              email: s.email || s.Email || '',
-              address: s.address || s.Address || '',
-              guardianName: s.guardianName || s['Guardian Name'] || '',
-              emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
-              schoolName: s.schoolName || s['School Name'] || '',
-              batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
-              beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
-              status: s.status || s.Status || 'ACTIVE',
-              joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
-            });
-          }
+          studentMap.set(id, {
+            id,
+            fullName: sName,
+            dob: s.dob || s.DOB || '',
+            gender: s.gender || s.Gender || 'Male',
+            phone: s.phone || s.Phone || '',
+            email: s.email || s.Email || '',
+            address: s.address || s.Address || '',
+            guardianName: s.guardianName || s['Guardian Name'] || '',
+            emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
+            schoolName: s.schoolName || s['School Name'] || '',
+            batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
+            beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
+            status: s.status || s.Status || 'ACTIVE',
+            joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
+          });
         });
+
         db.students = Array.from(studentMap.values());
       }
 
