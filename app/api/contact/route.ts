@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getContactMessagesDB, addContactMessageDB, markMessageReadDB, deleteContactMessageDB } from '@/lib/db';
+import { getContactMessagesDB, addContactMessageDB, markMessageReadDB, deleteContactMessageDB, syncFromGoogleSheets } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await checkAdminSession();
   if (!session.authenticated) {
     return NextResponse.json({ success: false, message: 'Unauthorized action' }, { status: 401 });
   }
 
+  await syncFromGoogleSheets(true, request);
   const messages = getContactMessagesDB();
   return NextResponse.json({ success: true, data: messages });
 }

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getEventsDB, addEventDB, updateEventDB, deleteEventDB } from '@/lib/db';
+import { getEventsDB, addEventDB, updateEventDB, deleteEventDB, syncFromGoogleSheets } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: Request) {
+  await syncFromGoogleSheets(true, request);
   const events = getEventsDB();
   return NextResponse.json({ success: true, data: events });
 }

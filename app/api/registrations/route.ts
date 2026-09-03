@@ -2,13 +2,8 @@ import { NextResponse } from 'next/server';
 import { getRegistrationsDB, submitRegistrationDB, approveRegistrationDB, rejectRegistrationDB, syncFromGoogleSheets, isDuplicateStudentOrRegistration } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
-export async function GET() {
-  const registrations = getRegistrationsDB();
-  if (registrations.length === 0) {
-    await syncFromGoogleSheets();
-  } else {
-    syncFromGoogleSheets().catch(() => {});
-  }
+export async function GET(request: Request) {
+  await syncFromGoogleSheets(true, request);
   return NextResponse.json({ success: true, data: getRegistrationsDB() });
 }
 

@@ -18,7 +18,7 @@ export interface GoogleSheetsConfig {
 
 export async function fetchGoogleSheetsConfig(): Promise<GoogleSheetsConfig> {
   try {
-    const res = await fetch('/api/sheets-config');
+    const res = await fetch('/api/sheets-config', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && json.data) {
       setItem(KEYS.CONFIG, json.data);
@@ -41,11 +41,20 @@ export function getGoogleSheetsConfig(): GoogleSheetsConfig {
   return { webAppUrl: '', enabled: false };
 }
 
+export function getApiHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
+  const config = getGoogleSheetsConfig();
+  const headers: Record<string, string> = { ...customHeaders };
+  if (config && config.webAppUrl) {
+    headers['x-sheets-url'] = config.webAppUrl.trim();
+  }
+  return headers;
+}
+
 export async function saveGoogleSheetsConfigApi(config: GoogleSheetsConfig): Promise<boolean> {
   try {
     const res = await fetch('/api/sheets-config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(config),
     });
     const json = await res.json();
@@ -151,7 +160,7 @@ function setItem<T>(key: string, value: T): void {
 // -------------------------------------------------------------
 export async function fetchStudents(): Promise<Student[]> {
   try {
-    const res = await fetch('/api/students');
+    const res = await fetch('/api/students', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.STUDENTS, json.data);
@@ -178,7 +187,7 @@ export async function saveStudentApi(studentData: any): Promise<Student | null> 
   const method = studentData.id ? 'PUT' : 'POST';
   const res = await fetch('/api/students', {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: getApiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(studentData),
   });
   const json = await res.json();
@@ -210,7 +219,7 @@ export async function updateStudentBeltApi(studentId: string, newBelt: Student['
   try {
     const res = await fetch('/api/students', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ action: 'UPDATE_BELT', studentId, newBelt }),
     });
     const json = await res.json();
@@ -238,7 +247,7 @@ export async function deleteStudentApi(studentId: string): Promise<boolean> {
   try {
     let students = getStudents().filter((s) => s.id !== studentId);
     setItem(KEYS.STUDENTS, students);
-    const res = await fetch(`/api/students?id=${encodeURIComponent(studentId)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/students?id=${encodeURIComponent(studentId)}`, { method: 'DELETE', headers: getApiHeaders() });
     const json = await res.json();
     if (json.success) {
       await fetchStudents();
@@ -265,7 +274,7 @@ export function deleteStudent(studentId: string): boolean {
 export async function fetchAttendanceRecords(date?: string): Promise<AttendanceRecord[]> {
   try {
     const url = date ? `/api/attendance?date=${encodeURIComponent(date)}` : '/api/attendance';
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.ATTENDANCE, json.data);
@@ -287,7 +296,7 @@ export async function markAttendanceApi(date: string, updates: any[]): Promise<A
   try {
     const res = await fetch('/api/attendance', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ date, updates }),
     });
     const json = await res.json();
@@ -311,7 +320,7 @@ export function markAttendance(date: string, updates: any[]): AttendanceRecord[]
 // -------------------------------------------------------------
 export async function fetchAchievements(): Promise<Achievement[]> {
   try {
-    const res = await fetch('/api/achievements');
+    const res = await fetch('/api/achievements', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.ACHIEVEMENTS, json.data);
@@ -331,7 +340,7 @@ export async function addAchievementApi(achievement: any): Promise<Achievement |
   try {
     const res = await fetch('/api/achievements', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(achievement),
     });
     const json = await res.json();
@@ -358,7 +367,7 @@ export async function updateAchievementApi(achievement: Achievement): Promise<Ac
   try {
     const res = await fetch('/api/achievements', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(achievement),
     });
     const json = await res.json();
@@ -388,7 +397,7 @@ export async function deleteAchievementApi(id: string): Promise<boolean> {
   try {
     let list = getAchievements().filter((a) => a.id !== id);
     setItem(KEYS.ACHIEVEMENTS, list);
-    const res = await fetch(`/api/achievements?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/achievements?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: getApiHeaders() });
     const json = await res.json();
     if (json.success) {
       await fetchAchievements();
@@ -414,7 +423,7 @@ export function deleteAchievement(id: string): boolean {
 // -------------------------------------------------------------
 export async function fetchEvents(): Promise<UpcomingEvent[]> {
   try {
-    const res = await fetch('/api/events');
+    const res = await fetch('/api/events', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.EVENTS, json.data);
@@ -434,7 +443,7 @@ export async function addEventApi(event: any): Promise<UpcomingEvent | null> {
   try {
     const res = await fetch('/api/events', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(event),
     });
     const json = await res.json();
@@ -461,7 +470,7 @@ export async function updateEventApi(event: UpcomingEvent): Promise<UpcomingEven
   try {
     const res = await fetch('/api/events', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(event),
     });
     const json = await res.json();
@@ -491,7 +500,7 @@ export async function deleteEventApi(id: string): Promise<boolean> {
   try {
     let list = getEvents().filter((e) => e.id !== id);
     setItem(KEYS.EVENTS, list);
-    const res = await fetch(`/api/events?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/events?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: getApiHeaders() });
     const json = await res.json();
     if (json.success) {
       await fetchEvents();
@@ -517,7 +526,7 @@ export function deleteEvent(id: string): boolean {
 // -------------------------------------------------------------
 export async function fetchContactMessages(): Promise<ContactMessage[]> {
   try {
-    const res = await fetch('/api/contact');
+    const res = await fetch('/api/contact', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.MESSAGES, json.data);
@@ -537,7 +546,7 @@ export async function addContactMessageApi(message: any): Promise<ContactMessage
   try {
     const res = await fetch('/api/contact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(message),
     });
     const json = await res.json();
@@ -564,7 +573,7 @@ export async function markMessageReadApi(id: string): Promise<void> {
   try {
     await fetch('/api/contact', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ id }),
     });
     await fetchContactMessages();
@@ -587,7 +596,7 @@ export async function deleteContactMessageApi(id: string): Promise<boolean> {
   try {
     let list = getContactMessages().filter((m) => m.id !== id);
     setItem(KEYS.MESSAGES, list);
-    const res = await fetch(`/api/contact?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const res = await fetch(`/api/contact?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: getApiHeaders() });
     const json = await res.json();
     if (json.success) {
       await fetchContactMessages();
@@ -613,7 +622,7 @@ export function deleteContactMessage(id: string): boolean {
 // -------------------------------------------------------------
 export async function fetchRegistrations(): Promise<StudentRegistration[]> {
   try {
-    const res = await fetch('/api/registrations');
+    const res = await fetch('/api/registrations', { headers: getApiHeaders() });
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       setItem(KEYS.REGISTRATIONS, json.data);
@@ -632,7 +641,7 @@ export function getRegistrations(): StudentRegistration[] {
 export async function submitRegistrationApi(regData: any): Promise<StudentRegistration> {
   const res = await fetch('/api/registrations', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getApiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(regData),
   });
   const json = await res.json();
@@ -661,7 +670,7 @@ export async function approveRegistrationApi(id: string): Promise<Student | null
   try {
     const res = await fetch('/api/registrations', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ id, action: 'APPROVE' }),
     });
     const json = await res.json();
@@ -704,7 +713,7 @@ export async function rejectRegistrationApi(id: string): Promise<boolean> {
   try {
     const res = await fetch('/api/registrations', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ id, action: 'REJECT' }),
     });
     const json = await res.json();

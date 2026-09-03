@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAttendanceRecordsDB, markAttendanceDB } from '@/lib/db';
+import { getAttendanceRecordsDB, markAttendanceDB, syncFromGoogleSheets } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
 export async function GET(request: Request) {
+  await syncFromGoogleSheets(true, request);
   const { searchParams } = new URL(request.url);
   const date = searchParams.get('date') || undefined;
   const records = getAttendanceRecordsDB(date);

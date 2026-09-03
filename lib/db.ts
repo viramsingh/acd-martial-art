@@ -116,14 +116,26 @@ let lastSyncTimestamp = 0;
 const SYNC_CACHE_TTL = 60 * 1000; // 60 seconds cache TTL for super-fast API response
 
 // Async sync FROM Google Sheets to pull all rows live into server DB
-export async function syncFromGoogleSheets(force: boolean = false): Promise<boolean> {
+export async function syncFromGoogleSheets(force: boolean = false, request?: Request): Promise<boolean> {
   const db = getDatabase();
+
+  let headerUrl = request?.headers?.get('x-sheets-url') || '';
+  if (!headerUrl && typeof request !== 'undefined' && request?.headers?.get('cookie')) {
+    const cookies = request.headers.get('cookie') || '';
+    const match = cookies.match(/acd_sheets_url=([^;]+)/);
+    if (match) headerUrl = decodeURIComponent(match[1]);
+  }
+
+  if (headerUrl && headerUrl.trim()) {
+    db.sheetsConfig = { webAppUrl: headerUrl.trim(), enabled: true };
+  }
+
   const webUrl = db.sheetsConfig?.webAppUrl || process.env.GOOGLE_SHEETS_WEB_APP_URL;
-  if (!webUrl || !db.sheetsConfig?.enabled) return false;
+  if (!webUrl) return false;
 
   const now = Date.now();
-  if (!force && (now - lastSyncTimestamp < SYNC_CACHE_TTL)) {
-    return true; // Return immediately from in-memory DB
+  if (!force && (now - lastSyncTimestamp < SYNC_CACHE_TTL) && (db.students && db.students.length > 0)) {
+    return true; // Return immediately from in-memory DB if available
   }
 
   lastSyncTimestamp = now;

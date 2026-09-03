@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getAchievementsDB, addAchievementDB, updateAchievementDB, deleteAchievementDB } from '@/lib/db';
+import { getAchievementsDB, addAchievementDB, updateAchievementDB, deleteAchievementDB, syncFromGoogleSheets } from '@/lib/db';
 import { checkAdminSession } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: Request) {
+  await syncFromGoogleSheets(true, request);
   const achievements = getAchievementsDB();
   return NextResponse.json({ success: true, data: achievements });
 }
