@@ -19,7 +19,6 @@ import {
   deleteStudentApi, markAttendanceApi, addAchievementApi, updateAchievementApi,
   deleteAchievementApi, addEventApi, updateEventApi, deleteEventApi,
   markMessageReadApi, deleteContactMessageApi, approveRegistrationApi, rejectRegistrationApi,
-  getGoogleSheetsConfig, saveGoogleSheetsConfig, fetchGoogleSheetsConfig, saveGoogleSheetsConfigApi, GoogleSheetsConfig,
   clearAllLocalDataApi, clearAllLocalStorage, getMaxIdNumber, formatDateYMD
 } from '@/lib/sheets';
 import { Student, AttendanceRecord, Achievement, ContactMessage, StudentRegistration, BeltLevel, UpcomingEvent } from '@/types';
@@ -29,7 +28,7 @@ import Pagination from '@/components/Pagination';
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'attendance' | 'achievements' | 'events' | 'registrations' | 'messages' | 'sheets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'students' | 'attendance' | 'achievements' | 'events' | 'registrations' | 'messages'>('overview');
 
   // State Stores
   const [students, setStudents] = useState<Student[]>([]);
@@ -38,7 +37,6 @@ export default function AdminDashboardPage() {
   const [events, setEvents] = useState<UpcomingEvent[]>([]);
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [registrations, setRegistrations] = useState<StudentRegistration[]>([]);
-  const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({ webAppUrl: '', enabled: false });
 
   // Filters & Controls
   const [searchTerm, setSearchTerm] = useState('');
@@ -136,7 +134,6 @@ export default function AdminDashboardPage() {
   const [showPassText, setShowPassText] = useState(false);
 
   // Loading States for All Interactive Buttons
-  const [isSavingSheets, setIsSavingSheets] = useState(false);
   const [isSavingAttendance, setIsSavingAttendance] = useState(false);
   const [isSubmittingStudent, setIsSubmittingStudent] = useState(false);
   const [isSubmittingAchievement, setIsSubmittingAchievement] = useState(false);
@@ -231,27 +228,49 @@ export default function AdminDashboardPage() {
       });
   }, [router]);
 
-  const handleUpdateCreds = (e: React.FormEvent) => {
+  const [isUpdatingCreds, setIsUpdatingCreds] = useState(false);
+
+  const handleUpdateCreds = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAdminUser.trim() || !newAdminPass.trim()) {
       showToast('Username and password cannot be empty.', 'error');
       return;
     }
-    showToast('Admin Credentials are configured securely in server environment variables (ADMIN_USERNAME & ADMIN_PASSWORD).', 'info');
-    setShowCredsModal(false);
+    setIsUpdatingCreds(true);
+    try {
+      const res = await fetch('/api/auth/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: newAdminUser.trim(),
+          password: newAdminPass.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Admin Credentials updated successfully! Use new username & password for future logins.', 'success');
+        setShowCredsModal(false);
+        setNewAdminPass('');
+      } else {
+        showToast(data.message || 'Failed to update credentials.', 'error');
+      }
+    } catch {
+      showToast('Error communicating with authentication server.', 'error');
+    } finally {
+      setIsUpdatingCreds(false);
+    }
   };
 
   const refreshData = async () => {
     setIsRefreshing(true);
     try {
-      const [sList, attList, achList, evtList, msgList, regList, cfg] = await Promise.all([
+      const [sList, attList, achList, evtList, msgList, regList] = await Promise.all([
         fetchStudents(),
         fetchAttendanceRecords(),
         fetchAchievements(),
         fetchEvents(),
         fetchContactMessages(),
         fetchRegistrations(),
-        fetchGoogleSheetsConfig(),
       ]);
       setStudents(sList);
       setAttendance(attList);
@@ -259,7 +278,6 @@ export default function AdminDashboardPage() {
       setEvents(evtList);
       setMessages(msgList);
       setRegistrations(regList);
-      setSheetsConfig(cfg || getGoogleSheetsConfig());
     } catch (e) {
       console.error('Failed refreshing dashboard data:', e);
     } finally {
@@ -596,18 +614,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Save Google Sheets Config
-  const handleSaveSheetsConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSavingSheets(true);
-    try {
-      await saveGoogleSheetsConfigApi(sheetsConfig);
-      saveGoogleSheetsConfig(sheetsConfig);
-      showToast('Google Sheets API Integration settings updated and saved to server!', 'success');
-    } finally {
-      setIsSavingSheets(false);
-    }
-  };
 
   const [isClearingData, setIsClearingData] = useState(false);
 
@@ -756,7 +762,6 @@ export default function AdminDashboardPage() {
             { id: 'achievements', label: `Achievements (${achievements.length})`, icon: Trophy },
             { id: 'events', label: `Events Manager (${events.length})`, icon: Sparkles },
             { id: 'messages', label: `Messages (${newMsgCount})`, icon: Mail, badge: newMsgCount > 0 ? newMsgCount : undefined },
-            { id: 'sheets', label: 'Google Sheets Integration', icon: FileSpreadsheet },
           ].map((tab) => {
             const Icon = tab.icon;
             const isSelected = activeTab === tab.id;
@@ -1556,62 +1561,6 @@ export default function AdminDashboardPage() {
         )}
 
 
-        {/* ------------------------------------------------------------- */}
-        {/* TAB 7: GOOGLE SHEETS INTEGRATION */}
-        {/* ------------------------------------------------------------- */}
-        {activeTab === 'sheets' && (
-          <div className="glass-card p-8 rounded-3xl border border-slate-700 space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-xl font-bold font-outfit text-white flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-400" /> Google Sheets API Connector
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Connect your Google Spreadsheet via Google Apps Script Web App URL for real-time cloud data sync.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveSheetsConfig} className="space-y-5">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Google Apps Script Web App URL</label>
-                <input
-                  type="url"
-                  value={sheetsConfig.webAppUrl}
-                  onChange={(e) => setSheetsConfig({ ...sheetsConfig, webAppUrl: e.target.value })}
-                  placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-red-500 font-mono"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="sheetsEnabled"
-                  checked={sheetsConfig.enabled}
-                  onChange={(e) => setSheetsConfig({ ...sheetsConfig, enabled: e.target.checked })}
-                  className="w-4 h-4 rounded text-red-600 focus:ring-0"
-                />
-                <label htmlFor="sheetsEnabled" className="text-xs text-slate-300">Enable Google Sheets Sync</label>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSavingSheets}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-bold text-xs px-6 py-3 rounded-xl shadow-lg flex items-center gap-2 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {isSavingSheets ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    Connecting & Saving Settings...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" /> Save Integration Settings
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-        )}
 
       </main>
 
@@ -2160,9 +2109,17 @@ export default function AdminDashboardPage() {
                 </button>
                 <button
                   type="submit"
-                  className="bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-5 py-2 rounded-xl shadow"
+                  disabled={isUpdatingCreds}
+                  className="bg-red-600 hover:bg-red-500 disabled:opacity-60 text-white font-bold text-xs px-5 py-2 rounded-xl shadow flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  Save New Credentials
+                  {isUpdatingCreds ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save New Credentials'
+                  )}
                 </button>
               </div>
             </form>
@@ -2367,7 +2324,7 @@ export default function AdminDashboardPage() {
                     required
                     value={editingAchievement.date}
                     onChange={(e) => setEditingAchievement({ ...editingAchievement, date: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
+                    className="w-full bg-slate-900 border border-slate-700 [color-scheme:dark] rounded-xl px-4 py-2.5 text-xs text-white"
                   />
                 </div>
               </div>
@@ -2504,7 +2461,7 @@ export default function AdminDashboardPage() {
                     required
                     value={editingEvent.date}
                     onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white [color-scheme:dark]"
                   />
                 </div>
               </div>

@@ -127,3 +127,16 @@ CREATE POLICY "Allow public access events" ON public.events FOR ALL USING (true)
 CREATE POLICY "Allow public access messages" ON public.messages FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public access registrations" ON public.registrations FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public access sheets_config" ON public.sheets_config FOR ALL USING (true) WITH CHECK (true);
+
+-- 8. ADMIN CREDENTIALS TABLE (Dynamic Master Login)
+CREATE TABLE IF NOT EXISTS public.admin_credentials (
+    id TEXT PRIMARY KEY DEFAULT 'primary',
+    username TEXT NOT NULL DEFAULT 'admin',
+    password TEXT NOT NULL DEFAULT 'admin123',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.admin_credentials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public access admin_credentials" ON public.admin_credentials;
+CREATE POLICY "Allow public access admin_credentials" ON public.admin_credentials FOR ALL USING (true) WITH CHECK (true);
+
