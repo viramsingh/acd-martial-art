@@ -111,7 +111,8 @@ export async function syncMutationToSupabase(action: string, payload: any): Prom
           time: payload.time || '',
           location: payload.location || '',
           description: payload.desc || payload.description || '',
-          badge_color: payload.badgeColor || 'gold'
+          badge_color: payload.badgeColor || 'gold',
+          image: payload.image || ''
         });
         break;
 

@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     location TEXT DEFAULT '',
     description TEXT DEFAULT '',
     badge_color TEXT DEFAULT 'gold',
+    image TEXT DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

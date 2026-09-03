@@ -177,7 +177,8 @@ export async function syncFromSupabase(): Promise<boolean> {
         time: e.time || '',
         location: e.location || '',
         desc: e.description || '',
-        badgeColor: e.badge_color || 'gold'
+        badgeColor: e.badge_color || 'gold',
+        image: e.image || e.image_url || '/assets/IMG_4159.PNG'
       }));
     }
 
