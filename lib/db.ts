@@ -97,20 +97,8 @@ export function saveDatabase(db: DatabaseSchema): void {
 }
 
 // Async sync to Google Sheets if configured
-async function syncToGoogleSheets(action: string, payload: any) {
-  const db = getDatabase();
-  const webUrl = db.sheetsConfig?.webAppUrl || process.env.GOOGLE_SHEETS_WEB_APP_URL;
-  if (!webUrl || !db.sheetsConfig?.enabled) return;
-
-  try {
-    await fetch(webUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, payload, timestamp: new Date().toISOString() })
-    });
-  } catch (err) {
-    console.warn('Google Sheets sync notice:', err);
-  }
+async function syncToGoogleSheets(_action: string, _payload: any) {
+  // No-op: Supabase handles 100% of persistent data storage
 }
 
 let lastSyncTimestamp = 0;
@@ -241,177 +229,12 @@ export async function syncFromSupabase(): Promise<boolean> {
   }
 }
 
-// Async sync FROM Google Sheets to pull all rows live into server DB
-export async function syncFromGoogleSheets(force: boolean = false, request?: Request): Promise<boolean> {
-  const db = getDatabase();
-
+// High-performance Database Sync directly using Supabase Cloud PostgreSQL
+export async function syncFromGoogleSheets(_force: boolean = false, _request?: Request): Promise<boolean> {
   if (isSupabaseConfigured()) {
-    await syncFromSupabase();
+    return await syncFromSupabase();
   }
-
-  let headerUrl = request?.headers?.get('x-sheets-url') || '';
-  if (!headerUrl && typeof request !== 'undefined' && request?.headers?.get('cookie')) {
-    const cookies = request.headers.get('cookie') || '';
-    const match = cookies.match(/acd_sheets_url=([^;]+)/);
-    if (match) headerUrl = decodeURIComponent(match[1]);
-  }
-
-  if (headerUrl && headerUrl.trim()) {
-    db.sheetsConfig = { webAppUrl: headerUrl.trim(), enabled: true };
-  }
-
-  const webUrl = db.sheetsConfig?.webAppUrl || process.env.GOOGLE_SHEETS_WEB_APP_URL;
-  if (!webUrl) return false;
-
-  const now = Date.now();
-  if (!force && (now - lastSyncTimestamp < SYNC_CACHE_TTL) && (db.students && db.students.length > 0)) {
-    return true; // Return immediately from in-memory DB if available
-  }
-
-  lastSyncTimestamp = now;
-
-  try {
-    const res = await fetch(webUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'GET_ALL_DATA' })
-    });
-    const text = await res.text();
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      return false; // Not a valid JSON response from Google Sheets URL
-    }
-    if (json && json.status === 'success' && json.data) {
-      const data = json.data;
-
-      const deletedSet = new Set(db.deletedIds || []);
-
-      // 1. Merge Students (preserve all valid unique student records)
-      if (Array.isArray(data.students) && data.students.length > 0) {
-        const studentMap = new Map<string, Student>();
-        // Add existing valid local students first
-        (db.students || []).forEach((s) => {
-          if (s && s.id && !deletedSet.has(s.id)) {
-            studentMap.set(s.id, s);
-          }
-        });
-
-        let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
-
-        data.students.forEach((s: any) => {
-          if (!s) return;
-          const sName = s.fullName || s['Full Name'] || s.name || '';
-          if (!sName.trim()) return;
-
-          let id = s.id ? String(s.id).trim() : '';
-          if (!id || studentMap.has(id)) {
-            currentMax += 1;
-            id = `ACD-2026-${String(currentMax).padStart(3, '0')}`;
-          }
-
-          if (!deletedSet.has(id)) {
-            studentMap.set(id, {
-              id,
-              fullName: sName,
-              dob: s.dob || s.DOB || '',
-              gender: s.gender || s.Gender || 'Male',
-              phone: s.phone || s.Phone || '',
-              email: s.email || s.Email || '',
-              address: s.address || s.Address || '',
-              guardianName: s.guardianName || s['Guardian Name'] || '',
-              emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
-              schoolName: s.schoolName || s['School Name'] || '',
-              batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
-              beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
-              status: s.status || s.Status || 'ACTIVE',
-              joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
-            });
-          }
-        });
-        db.students = Array.from(studentMap.values());
-      }
-
-      if (Array.isArray(data.attendance) && data.attendance.length > 0) {
-        db.attendance = data.attendance;
-      }
-      if (Array.isArray(data.achievements) && data.achievements.length > 0) {
-        db.achievements = data.achievements.filter((a: any) => !deletedSet.has(a.id));
-      }
-      if (Array.isArray(data.events) && data.events.length > 0) {
-        db.events = data.events.filter((e: any) => !deletedSet.has(e.id));
-      }
-      if (Array.isArray(data.messages) && data.messages.length > 0) {
-        db.messages = data.messages.filter((m: any) => !deletedSet.has(m.id));
-      }// 2. Merge Registrations (preserve APPROVED and REJECTED status)
-      if (Array.isArray(data.registrations) && data.registrations.length > 0) {
-        const activeStudentPhones = new Set((db.students || []).map((s) => s.phone ? s.phone.replace(/\D/g, '').trim() : '').filter(Boolean));
-        const activeStudentEmails = new Set((db.students || []).map((s) => s.email ? s.email.toLowerCase().trim() : '').filter(Boolean));
-        const localRegMap = new Map<string, string>();
-        (db.registrations || []).forEach((r) => {
-          if (r.id) localRegMap.set(r.id, r.status);
-        });
-
-        db.registrations = data.registrations.map((r: any) => {
-          const id = r.id || `REG-2026-${Math.floor(Math.random() * 1000)}`;
-          const phoneClean = r.phone ? r.phone.replace(/\D/g, '').trim() : '';
-          const emailClean = r.email ? r.email.toLowerCase().trim() : '';
-          const localStatus = localRegMap.get(id);
-
-          let finalStatus = r.status;
-          // If already in active students or local status is APPROVED / REJECTED, enforce it!
-          if (
-            (phoneClean && activeStudentPhones.has(phoneClean)) ||
-            (emailClean && activeStudentEmails.has(emailClean)) ||
-            localStatus === 'APPROVED'
-          ) {
-            finalStatus = 'APPROVED';
-          } else if (localStatus === 'REJECTED') {
-            finalStatus = 'REJECTED';
-          } else if (!finalStatus) {
-            finalStatus = 'PENDING';
-          }
-
-          return {
-            id,
-            fullName: r.fullName || r['Full Name'] || '',
-            dob: r.dob || '',
-            gender: r.gender || 'Male',
-            phone: r.phone || '',
-            email: r.email || '',
-            address: r.address || '',
-            guardianName: r.guardianName || '',
-            emergencyPhone: r.emergencyPhone || '',
-            schoolName: r.schoolName || '',
-            batch: r.batch || 'Evening 5:00 To 6:00',
-            beltLevel: r.beltLevel || 'White Belt',
-            experience: r.experience || 'Beginner',
-            status: finalStatus as any,
-            submittedAt: r.submittedAt || new Date().toLocaleString()
-          };
-        });
-      }
-
-      if (Array.isArray(data.attendance) && data.attendance.length > 0) {
-        db.attendance = data.attendance;
-      }
-      if (Array.isArray(data.achievements) && data.achievements.length > 0) {
-        db.achievements = data.achievements;
-      }
-      if (Array.isArray(data.events) && data.events.length > 0) {
-        db.events = data.events;
-      }
-      if (Array.isArray(data.messages) && data.messages.length > 0) {
-        db.messages = data.messages;
-      }
-      saveDatabase(db);
-      return true;
-    }
-  } catch (err) {
-    console.warn('Google Sheets pull sync notice:', err);
-  }
-  return false;
+  return true;
 }
 
 // -------------------------------------------------------------
