@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Student, AttendanceRecord, Achievement, ContactMessage, StudentRegistration, UpcomingEvent } from '@/types';
+import { getSupabaseClient, isSupabaseConfigured, syncMutationToSupabase } from './supabase';
 
 export interface GoogleSheetsConfig {
   webAppUrl: string;
@@ -115,9 +116,138 @@ async function syncToGoogleSheets(action: string, payload: any) {
 let lastSyncTimestamp = 0;
 const SYNC_CACHE_TTL = 60 * 1000; // 60 seconds cache TTL for super-fast API response
 
+// Async sync FROM Supabase Cloud PostgreSQL
+export async function syncFromSupabase(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  try {
+    const [studentsRes, attendanceRes, achievementsRes, eventsRes, messagesRes, registrationsRes, sheetsConfigRes] = await Promise.all([
+      supabase.from('students').select('*'),
+      supabase.from('attendance').select('*'),
+      supabase.from('achievements').select('*'),
+      supabase.from('events').select('*'),
+      supabase.from('messages').select('*'),
+      supabase.from('registrations').select('*'),
+      supabase.from('sheets_config').select('*').eq('id', 'config_primary').maybeSingle(),
+    ]);
+
+    const db = getDatabase();
+
+    if (studentsRes.data) {
+      db.students = studentsRes.data.map((s: any) => ({
+        id: s.id,
+        fullName: s.full_name,
+        dob: s.dob || '',
+        gender: s.gender || 'Male',
+        phone: s.phone || '',
+        email: s.email || '',
+        address: s.address || '',
+        guardianName: s.guardian_name || '',
+        emergencyPhone: s.emergency_phone || '',
+        schoolName: s.school_name || '',
+        batch: s.batch || 'Evening 5:00 To 6:00',
+        beltLevel: s.belt_level || 'White Belt',
+        status: s.status || 'ACTIVE',
+        joiningDate: s.joining_date || ''
+      }));
+    }
+
+    if (attendanceRes.data) {
+      db.attendance = attendanceRes.data.map((a: any) => ({
+        id: a.id,
+        date: a.date,
+        studentId: a.student_id,
+        studentName: a.student_name,
+        batch: a.batch || '',
+        status: a.status || 'PRESENT',
+        checkInTime: a.check_in_time || '',
+        remarks: a.remarks || ''
+      }));
+    }
+
+    if (achievementsRes.data) {
+      db.achievements = achievementsRes.data.map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        studentName: a.student_name,
+        event: a.event || '',
+        position: a.position || '',
+        date: a.date || '',
+        description: a.description || '',
+        imageUrl: a.image_url || ''
+      }));
+    }
+
+    if (eventsRes.data) {
+      db.events = eventsRes.data.map((e: any) => ({
+        id: e.id,
+        title: e.title,
+        category: e.category || 'EVENT',
+        date: e.date || '',
+        time: e.time || '',
+        location: e.location || '',
+        desc: e.description || '',
+        badgeColor: e.badge_color || 'gold'
+      }));
+    }
+
+    if (messagesRes.data) {
+      db.messages = messagesRes.data.map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        email: m.email || '',
+        phone: m.phone || '',
+        subject: m.subject || '',
+        message: m.message || '',
+        status: m.status || 'NEW',
+        createdAt: m.created_at || ''
+      }));
+    }
+
+    if (registrationsRes.data) {
+      db.registrations = registrationsRes.data.map((r: any) => ({
+        id: r.id,
+        fullName: r.full_name,
+        dob: r.dob || '',
+        gender: r.gender || 'Male',
+        phone: r.phone || '',
+        email: r.email || '',
+        address: r.address || '',
+        guardianName: r.guardian_name || '',
+        emergencyPhone: r.emergency_phone || '',
+        schoolName: r.school_name || '',
+        batch: r.batch || 'Evening 5:00 To 6:00',
+        beltLevel: r.belt_level || 'White Belt',
+        experience: r.experience || 'Beginner',
+        status: r.status || 'PENDING',
+        submittedAt: r.submitted_at || ''
+      }));
+    }
+
+    if (sheetsConfigRes.data) {
+      db.sheetsConfig = {
+        webAppUrl: sheetsConfigRes.data.web_app_url || '',
+        enabled: sheetsConfigRes.data.enabled !== false
+      };
+    }
+
+    saveDatabase(db);
+    return true;
+  } catch (err) {
+    console.error('Supabase sync error:', err);
+    return false;
+  }
+}
+
 // Async sync FROM Google Sheets to pull all rows live into server DB
 export async function syncFromGoogleSheets(force: boolean = false, request?: Request): Promise<boolean> {
   const db = getDatabase();
+
+  if (isSupabaseConfigured()) {
+    await syncFromSupabase();
+  }
 
   let headerUrl = request?.headers?.get('x-sheets-url') || '';
   if (!headerUrl && typeof request !== 'undefined' && request?.headers?.get('cookie')) {
@@ -158,43 +288,48 @@ export async function syncFromGoogleSheets(force: boolean = false, request?: Req
 
       const deletedSet = new Set(db.deletedIds || []);
 
-      // 1. Clean 1-to-1 mapping of Students from Google Sheets (no duplication)
+      // 1. Merge Students (preserve all valid unique student records)
       if (Array.isArray(data.students) && data.students.length > 0) {
         const studentMap = new Map<string, Student>();
+        // Add existing valid local students first
+        (db.students || []).forEach((s) => {
+          if (s && s.id && !deletedSet.has(s.id)) {
+            studentMap.set(s.id, s);
+          }
+        });
+
+        let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
 
         data.students.forEach((s: any) => {
           if (!s) return;
-          const sName = (s.fullName || s['Full Name'] || s.name || '').trim();
-          if (!sName) return;
+          const sName = s.fullName || s['Full Name'] || s.name || '';
+          if (!sName.trim()) return;
 
           let id = s.id ? String(s.id).trim() : '';
-
-          // If deleted locally, skip
-          if (id && deletedSet.has(id)) return;
-
           if (!id || studentMap.has(id)) {
-            let currentMax = getMaxIdNumber(Array.from(studentMap.values()));
-            id = `ACD-2026-${String(currentMax + 1).padStart(3, '0')}`;
+            currentMax += 1;
+            id = `ACD-2026-${String(currentMax).padStart(3, '0')}`;
           }
 
-          studentMap.set(id, {
-            id,
-            fullName: sName,
-            dob: s.dob || s.DOB || '',
-            gender: s.gender || s.Gender || 'Male',
-            phone: s.phone || s.Phone || '',
-            email: s.email || s.Email || '',
-            address: s.address || s.Address || '',
-            guardianName: s.guardianName || s['Guardian Name'] || '',
-            emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
-            schoolName: s.schoolName || s['School Name'] || '',
-            batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
-            beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
-            status: s.status || s.Status || 'ACTIVE',
-            joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
-          });
+          if (!deletedSet.has(id)) {
+            studentMap.set(id, {
+              id,
+              fullName: sName,
+              dob: s.dob || s.DOB || '',
+              gender: s.gender || s.Gender || 'Male',
+              phone: s.phone || s.Phone || '',
+              email: s.email || s.Email || '',
+              address: s.address || s.Address || '',
+              guardianName: s.guardianName || s['Guardian Name'] || '',
+              emergencyPhone: s.emergencyPhone || s['Emergency Phone'] || '',
+              schoolName: s.schoolName || s['School Name'] || '',
+              batch: s.batch || s.Batch || 'Evening 5:00 To 6:00',
+              beltLevel: s.beltLevel || s['Belt Level'] || 'White Belt',
+              status: s.status || s.Status || 'ACTIVE',
+              joiningDate: s.joiningDate || s['Joining Date'] || new Date().toISOString().split('T')[0]
+            });
+          }
         });
-
         db.students = Array.from(studentMap.values());
       }
 
@@ -360,6 +495,7 @@ export function saveStudentDB(studentData: Partial<Omit<Student, 'id'>> & { full
       db.students = students;
       saveDatabase(db);
       syncToGoogleSheets('UPDATE_STUDENT', students[index]);
+      syncMutationToSupabase('UPSERT_STUDENT', students[index]);
       return students[index];
     }
   }
@@ -377,6 +513,7 @@ export function saveStudentDB(studentData: Partial<Omit<Student, 'id'>> & { full
   db.students = students;
   saveDatabase(db);
   syncToGoogleSheets('ADD_STUDENT', newStudent);
+  syncMutationToSupabase('UPSERT_STUDENT', newStudent);
   return newStudent;
 }
 
@@ -390,6 +527,7 @@ export function updateStudentBeltDB(studentId: string, newBelt: Student['beltLev
   db.students = students;
   saveDatabase(db);
   syncToGoogleSheets('UPDATE_BELT', { studentId, newBelt });
+  syncMutationToSupabase('UPSERT_STUDENT', students[index]);
   return students[index];
 }
 
@@ -401,6 +539,7 @@ export function deleteStudentDB(studentId: string): boolean {
   if (!db.deletedIds.includes(studentId)) db.deletedIds.push(studentId);
   saveDatabase(db);
   syncToGoogleSheets('DELETE_STUDENT', { id: studentId, studentId });
+  syncMutationToSupabase('DELETE_STUDENT', { id: studentId });
   return true;
 }
 
@@ -473,6 +612,7 @@ export function markAttendanceDB(
   db.attendance = updatedRecords;
   saveDatabase(db);
   syncToGoogleSheets('MARK_ATTENDANCE', { date: targetDate, updates });
+  syncMutationToSupabase('MARK_ATTENDANCE', updatedRecords);
   return db.attendance;
 }
 
@@ -497,6 +637,7 @@ export function addAchievementDB(achievement: Omit<Achievement, 'id'>): Achievem
   db.achievements = list;
   saveDatabase(db);
   syncToGoogleSheets('ADD_ACHIEVEMENT', newAchievement);
+  syncMutationToSupabase('UPSERT_ACHIEVEMENT', newAchievement);
   return newAchievement;
 }
 
@@ -509,6 +650,7 @@ export function updateAchievementDB(achievement: Achievement): Achievement | nul
     db.achievements = list;
     saveDatabase(db);
     syncToGoogleSheets('UPDATE_ACHIEVEMENT', list[index]);
+    syncMutationToSupabase('UPSERT_ACHIEVEMENT', list[index]);
     return list[index];
   }
   return null;
@@ -522,6 +664,7 @@ export function deleteAchievementDB(id: string): boolean {
   if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
   saveDatabase(db);
   syncToGoogleSheets('DELETE_ACHIEVEMENT', { id });
+  syncMutationToSupabase('DELETE_ACHIEVEMENT', { id });
   return true;
 }
 
@@ -547,6 +690,7 @@ export function addEventDB(event: Omit<UpcomingEvent, 'id'>): UpcomingEvent {
   db.events = list;
   saveDatabase(db);
   syncToGoogleSheets('ADD_EVENT', newEvent);
+  syncMutationToSupabase('UPSERT_EVENT', newEvent);
   return newEvent;
 }
 
@@ -559,6 +703,7 @@ export function updateEventDB(event: UpcomingEvent): UpcomingEvent | null {
     db.events = list;
     saveDatabase(db);
     syncToGoogleSheets('UPDATE_EVENT', list[index]);
+    syncMutationToSupabase('UPSERT_EVENT', list[index]);
     return list[index];
   }
   return null;
@@ -572,6 +717,7 @@ export function deleteEventDB(id: string): boolean {
   if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
   saveDatabase(db);
   syncToGoogleSheets('DELETE_EVENT', { id });
+  syncMutationToSupabase('DELETE_EVENT', { id });
   return true;
 }
 
@@ -596,6 +742,7 @@ export function addContactMessageDB(message: Omit<ContactMessage, 'id' | 'status
   db.messages = list;
   saveDatabase(db);
   syncToGoogleSheets('ADD_MESSAGE', newMsg);
+  syncMutationToSupabase('UPSERT_MESSAGE', newMsg);
   return newMsg;
 }
 
@@ -616,6 +763,7 @@ export function deleteContactMessageDB(id: string): boolean {
   if (!db.deletedIds.includes(id)) db.deletedIds.push(id);
   saveDatabase(db);
   syncToGoogleSheets('DELETE_MESSAGE', { id });
+  syncMutationToSupabase('DELETE_MESSAGE', { id });
   return true;
 }
 
@@ -640,6 +788,7 @@ export function submitRegistrationDB(regData: Omit<StudentRegistration, 'id' | '
   db.registrations = list;
   saveDatabase(db);
   syncToGoogleSheets('SUBMIT_REGISTRATION', newReg);
+  syncMutationToSupabase('UPSERT_REGISTRATION', newReg);
   return newReg;
 }
 
@@ -651,6 +800,7 @@ export function approveRegistrationDB(id: string): Student | null {
   reg.status = 'APPROVED';
   saveDatabase(db);
   syncToGoogleSheets('UPDATE_REGISTRATION', reg);
+  syncMutationToSupabase('UPSERT_REGISTRATION', reg);
 
   const student = saveStudentDB({
     fullName: reg.fullName,
@@ -678,6 +828,7 @@ export function rejectRegistrationDB(id: string): void {
     reg.status = 'REJECTED';
     saveDatabase(db);
     syncToGoogleSheets('UPDATE_REGISTRATION', reg);
+    syncMutationToSupabase('UPSERT_REGISTRATION', reg);
   }
 }
 
@@ -692,4 +843,5 @@ export function saveGoogleSheetsConfigDB(config: GoogleSheetsConfig): void {
   const db = getDatabase();
   db.sheetsConfig = config;
   saveDatabase(db);
+  syncMutationToSupabase('SAVE_SHEETS_CONFIG', config);
 }
