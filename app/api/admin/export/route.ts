@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { checkAdminSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { getDatabase, syncFromSupabase } from '@/lib/db';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 export async function GET(request: Request) {
   try {
@@ -76,18 +76,169 @@ export async function GET(request: Request) {
     const wsStudents = XLSX.utils.json_to_sheet(studentsData.length ? studentsData : [{ 'Info': 'No student records' }]);
     XLSX.utils.book_append_sheet(workbook, wsStudents, 'Students');
 
-    // 2. Attendance Sheet
-    const attendanceData = (db.attendance || []).map(a => ({
-      'Record ID': sanitize(a.id),
-      'Date': sanitize(a.date),
-      'Student ID': sanitize(a.studentId),
-      'Student Name': sanitize(a.studentName),
-      'Batch': sanitize(a.batch),
-      'Status': sanitize(a.status),
-      'Check-in Time': sanitize(a.checkInTime),
-      'Remarks': sanitize(a.remarks),
-    }));
-    const wsAttendance = XLSX.utils.json_to_sheet(attendanceData.length ? attendanceData : [{ 'Info': 'No attendance records' }]);
+    // 2. Attendance Monthly Register Matrix Sheet (Calendar Grid Format)
+    const now = new Date();
+    let targetYear = now.getFullYear();
+    let targetMonth = now.getMonth(); // 0-11
+
+    const attRecords = db.attendance || [];
+    if (attRecords.length > 0) {
+      const dates = attRecords.map(a => a.date).filter(Boolean).sort().reverse();
+      if (dates.length > 0) {
+        const parts = dates[0].split('-');
+        if (parts.length >= 2) {
+          targetYear = parseInt(parts[0], 10);
+          targetMonth = parseInt(parts[1], 10) - 1;
+        }
+      }
+    }
+
+    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+
+    // Fast lookup map for attendance status
+    const recordMap = new Map<string, string>();
+    attRecords.forEach(rec => {
+      if (rec.date) {
+        if (rec.studentId) recordMap.set(`${rec.studentId}_${rec.date}`, rec.status);
+        if (rec.studentName) recordMap.set(`${rec.studentName.trim().toLowerCase()}_${rec.date}`, rec.status);
+      }
+    });
+
+    const studentsList = db.students || [];
+    const attendanceMatrixData = studentsList.map((s, idx) => {
+      const row: Record<string, any> = {
+        'S.No.': idx + 1,
+        'Student Name': sanitize(s.fullName),
+      };
+
+      let pCount = 0;
+      let aCount = 0;
+      let plCount = 0;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeek = new Date(targetYear, targetMonth, day).getDay(); // 0 = Sunday
+
+        const status = recordMap.get(`${s.id}_${dateStr}`) || recordMap.get(`${s.fullName.trim().toLowerCase()}_${dateStr}`);
+
+        if (status === 'PRESENT') {
+          row[String(day)] = 'P';
+          pCount++;
+        } else if (status === 'ABSENT') {
+          row[String(day)] = 'A';
+          aCount++;
+        } else if (status === 'LATE') {
+          row[String(day)] = 'PL';
+          plCount++;
+        } else if (dayOfWeek === 0) {
+          row[String(day)] = 'SUN';
+        } else {
+          row[String(day)] = '-';
+        }
+      }
+
+      row['P'] = pCount;
+      row['A'] = aCount;
+      row['PL'] = plCount * 2; // Penalty leave multiplied by 2
+      const effectiveAbsent = aCount + (plCount * 2);
+      const totalMarkedDays = pCount + effectiveAbsent;
+      row['%'] = totalMarkedDays > 0 ? `${((pCount / totalMarkedDays) * 100).toFixed(1)}%` : '0%';
+
+      return row;
+    });
+
+    // Explicit Column Order without Batch and Belt
+    const dayHeaders: string[] = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      dayHeaders.push(String(day));
+    }
+    const attendanceHeaders = [
+      'S.No.',
+      'Student Name',
+      ...dayHeaders,
+      'P',
+      'A',
+      'PL',
+      '%',
+    ];
+
+    const wsAttendance = XLSX.utils.json_to_sheet(
+      attendanceMatrixData.length ? attendanceMatrixData : [{ 'Info': 'No attendance records' }],
+      { header: attendanceHeaders }
+    );
+
+    // Set column widths
+    const colWidths = [
+      { wch: 6 },  // S.No.
+      { wch: 26 }, // Student Name
+      ...dayHeaders.map(() => ({ wch: 4 })), // Day columns 1..31
+      { wch: 6 },  // P
+      { wch: 6 },  // A
+      { wch: 6 },  // PL
+      { wch: 8 },  // %
+    ];
+    wsAttendance['!cols'] = colWidths;
+
+    // Apply color styling to cells (Green for P, Red for A, Orange for PL, Dark header)
+    const range = XLSX.utils.decode_range(wsAttendance['!ref'] || 'A1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+      for (let C = range.s.c; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        const cell = wsAttendance[cellAddress];
+        if (!cell) continue;
+
+        // Header Row Styling
+        if (R === 0) {
+          cell.s = {
+            fill: { fgColor: { rgb: '1E293B' } }, // Dark Slate
+            font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+          continue;
+        }
+
+        // Student Name left aligned
+        if (C === 1) {
+          cell.s = {
+            font: { bold: true, sz: 10 },
+            alignment: { horizontal: 'left', vertical: 'center' },
+          };
+          continue;
+        }
+
+        // Color coding for Present, Absent, Late, Sunday
+        if (cell.v === 'P') {
+          cell.s = {
+            fill: { fgColor: { rgb: 'C6EFCE' } }, // Soft Green fill
+            font: { color: { rgb: '006100' }, bold: true, sz: 10 }, // Dark Green text
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        } else if (cell.v === 'A') {
+          cell.s = {
+            fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft Red fill
+            font: { color: { rgb: '9C0006' }, bold: true, sz: 10 }, // Dark Red text
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        } else if (cell.v === 'PL') {
+          cell.s = {
+            fill: { fgColor: { rgb: 'FFEB9C' } }, // Soft Yellow/Orange fill
+            font: { color: { rgb: '9C6500' }, bold: true, sz: 10 }, // Dark Orange text
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        } else if (cell.v === 'SUN') {
+          cell.s = {
+            fill: { fgColor: { rgb: 'F1F5F9' } },
+            font: { color: { rgb: '94A3B8' }, sz: 9 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        } else {
+          cell.s = {
+            alignment: { horizontal: 'center', vertical: 'center' },
+          };
+        }
+      }
+    }
+
     XLSX.utils.book_append_sheet(workbook, wsAttendance, 'Attendance');
 
     // 3. Achievements Sheet

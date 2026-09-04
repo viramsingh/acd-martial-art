@@ -20,7 +20,8 @@
     "tailwind-merge": "^2.6.0",
     "use-sound": "^5.0.0",
     "ws": "^8.21.3",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",

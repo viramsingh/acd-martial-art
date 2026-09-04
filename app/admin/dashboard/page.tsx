@@ -1247,13 +1247,13 @@ export default function AdminDashboardPage() {
                           </button>
                           <button
                             onClick={() => setAttendanceState({ ...attendanceState, [s.id]: 'LATE' })}
-                            className={`py-2 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 ${
+                            className={`py-2 px-2 rounded-lg font-bold text-[11px] transition-all flex items-center justify-center gap-1 ${
                               currentStatus === 'LATE'
                                 ? 'bg-amber-500 text-slate-950 shadow-md'
                                 : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
                             }`}
                           >
-                            <Clock className="w-3.5 h-3.5" /> LATE
+                            <Clock className="w-3.5 h-3.5" /> PENALTY LEAVE (PL)
                           </button>
                         </div>
                       </div>
@@ -1322,7 +1322,7 @@ export default function AdminDashboardPage() {
                                       : 'bg-slate-900 text-slate-400 hover:bg-slate-800'
                                   }`}
                                 >
-                                  <Clock className="w-3.5 h-3.5" /> LATE
+                                  <Clock className="w-3.5 h-3.5" /> PENALTY LEAVE (PL)
                                 </button>
                               </div>
                             </td>
