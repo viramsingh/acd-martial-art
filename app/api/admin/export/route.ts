@@ -105,47 +105,18 @@ export async function GET(request: Request) {
     });
 
     const studentsList = db.students || [];
-    const attendanceMatrixData = studentsList.map((s, idx) => {
-      const row: Record<string, any> = {
-        'S.No.': idx + 1,
-        'Student Name': sanitize(s.fullName),
-      };
 
-      let pCount = 0;
-      let aCount = 0;
-      let plCount = 0;
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const dayOfWeek = new Date(targetYear, targetMonth, day).getDay(); // 0 = Sunday
-
-        const status = recordMap.get(`${s.id}_${dateStr}`) || recordMap.get(`${s.fullName.trim().toLowerCase()}_${dateStr}`);
-
-        if (status === 'PRESENT') {
-          row[String(day)] = 'P';
-          pCount++;
-        } else if (status === 'ABSENT') {
-          row[String(day)] = 'A';
-          aCount++;
-        } else if (status === 'LATE') {
-          row[String(day)] = 'PL';
-          plCount++;
-        } else if (dayOfWeek === 0) {
-          row[String(day)] = 'SUN';
-        } else {
-          row[String(day)] = '-';
-        }
-      }
-
-      row['P'] = pCount;
-      row['A'] = aCount;
-      row['PL'] = plCount * 2; // Penalty leave multiplied by 2
-      const effectiveAbsent = aCount + (plCount * 2);
-      const totalMarkedDays = pCount + effectiveAbsent;
-      row['%'] = totalMarkedDays > 0 ? `${((pCount / totalMarkedDays) * 100).toFixed(1)}%` : '0%';
-
-      return row;
-    });
+    // Define batches to group by
+    const knownBatches = [
+      'Evening 5:00 To 6:00',
+      'Evening 6:30 To 7:30',
+      'Evening 8:00 To 9:00',
+    ];
+    const existingBatches = Array.from(new Set(studentsList.map(s => s.batch || 'Unassigned')));
+    const orderedBatches = [
+      ...knownBatches.filter(b => existingBatches.includes(b)),
+      ...existingBatches.filter(b => !knownBatches.includes(b)),
+    ];
 
     // Explicit Column Order without Batch and Belt
     const dayHeaders: string[] = [];
@@ -162,6 +133,72 @@ export async function GET(request: Request) {
       '%',
     ];
 
+    const attendanceMatrixData: any[] = [];
+    const batchHeaderRowIndices: number[] = [];
+
+    orderedBatches.forEach(batchName => {
+      const batchStudents = studentsList.filter(s => (s.batch || 'Unassigned') === batchName);
+      if (batchStudents.length === 0) return;
+
+      // 1. Batch Section Divider Banner
+      const batchRowIndex = attendanceMatrixData.length + 1; // +1 because row 0 is table header
+      batchHeaderRowIndices.push(batchRowIndex);
+
+      const sectionBanner: Record<string, any> = {
+        'S.No.': `BATCH: ${batchName.toUpperCase()}`,
+        'Student Name': '',
+      };
+      dayHeaders.forEach(d => { sectionBanner[d] = ''; });
+      sectionBanner['P'] = '';
+      sectionBanner['A'] = '';
+      sectionBanner['PL'] = '';
+      sectionBanner['%'] = '';
+      attendanceMatrixData.push(sectionBanner);
+
+      // 2. Batch Students
+      batchStudents.forEach((s, idx) => {
+        const row: Record<string, any> = {
+          'S.No.': idx + 1,
+          'Student Name': sanitize(s.fullName),
+        };
+
+        let pCount = 0;
+        let aCount = 0;
+        let plCount = 0;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const dayOfWeek = new Date(targetYear, targetMonth, day).getDay(); // 0 = Sunday
+
+          const status = recordMap.get(`${s.id}_${dateStr}`) || recordMap.get(`${s.fullName.trim().toLowerCase()}_${dateStr}`);
+
+          if (status === 'PRESENT') {
+            row[String(day)] = 'P';
+            pCount++;
+          } else if (status === 'ABSENT') {
+            row[String(day)] = 'A';
+            aCount++;
+          } else if (status === 'LATE') {
+            row[String(day)] = 'PL';
+            plCount++;
+          } else if (dayOfWeek === 0) {
+            row[String(day)] = 'SUN';
+          } else {
+            row[String(day)] = '-';
+          }
+        }
+
+        row['P'] = pCount;
+        row['A'] = aCount;
+        row['PL'] = plCount * 2; // Penalty leave multiplied by 2
+        const effectiveAbsent = aCount + (plCount * 2);
+        const totalMarkedDays = pCount + effectiveAbsent;
+        row['%'] = totalMarkedDays > 0 ? `${((pCount / totalMarkedDays) * 100).toFixed(1)}%` : '0%';
+
+        attendanceMatrixData.push(row);
+      });
+    });
+
     const wsAttendance = XLSX.utils.json_to_sheet(
       attendanceMatrixData.length ? attendanceMatrixData : [{ 'Info': 'No attendance records' }],
       { header: attendanceHeaders }
@@ -169,7 +206,7 @@ export async function GET(request: Request) {
 
     // Set column widths
     const colWidths = [
-      { wch: 6 },  // S.No.
+      { wch: 8 },  // S.No.
       { wch: 26 }, // Student Name
       ...dayHeaders.map(() => ({ wch: 4 })), // Day columns 1..31
       { wch: 6 },  // P
@@ -179,20 +216,38 @@ export async function GET(request: Request) {
     ];
     wsAttendance['!cols'] = colWidths;
 
+    // Merge batch section header rows across all columns
+    wsAttendance['!merges'] = batchHeaderRowIndices.map(rIdx => ({
+      s: { r: rIdx, c: 0 },
+      e: { r: rIdx, c: attendanceHeaders.length - 1 }
+    }));
+
     // Apply color styling to cells (Green for P, Red for A, Orange for PL, Dark header)
     const range = XLSX.utils.decode_range(wsAttendance['!ref'] || 'A1');
     for (let R = range.s.r; R <= range.e.r; ++R) {
+      const isBatchHeader = batchHeaderRowIndices.includes(R);
+
       for (let C = range.s.c; C <= range.e.c; ++C) {
         const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
         const cell = wsAttendance[cellAddress];
         if (!cell) continue;
 
-        // Header Row Styling
+        // Table Header Row Styling
         if (R === 0) {
           cell.s = {
             fill: { fgColor: { rgb: '1E293B' } }, // Dark Slate
             font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 },
             alignment: { horizontal: 'center', vertical: 'center' },
+          };
+          continue;
+        }
+
+        // Batch Section Divider Row Styling
+        if (isBatchHeader) {
+          cell.s = {
+            fill: { fgColor: { rgb: '0F172A' } }, // Very dark navy
+            font: { color: { rgb: 'F59E0B' }, bold: true, sz: 11 }, // Amber gold bold text
+            alignment: { horizontal: 'left', vertical: 'center' },
           };
           continue;
         }
