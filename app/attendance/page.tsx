@@ -80,39 +80,55 @@ export default function AttendancePublicPage() {
           Today's Evening Batch Schedule
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Meghdoot Nagar - 1st Batch */}
           <div className="glass-card p-6 rounded-2xl space-y-3 border border-emerald-500/40">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-1 rounded-md">
-                Active Slot 1
+                Meghdoot Nagar
               </span>
               <Clock className="w-4 h-4 text-slate-400" />
             </div>
-            <h3 className="text-xl font-bold font-outfit text-white">Evening Batch 1</h3>
+            <h3 className="text-lg font-bold font-outfit text-white">1st Batch (5:00 - 6:00 PM)</h3>
             <p className="text-xs text-amber-400 font-semibold font-mono">Time: 5:00 PM To 6:00 PM</p>
             <p className="text-xs text-slate-400">Curriculum: Beginners & Intermediate Taekwondo, Kicking Drills & Stance Foundation.</p>
           </div>
 
+          {/* Meghdoot Nagar - 2nd Batch */}
           <div className="glass-card p-6 rounded-2xl space-y-3 border border-emerald-500/40">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-1 rounded-md">
-                Active Slot 2
+                Meghdoot Nagar
               </span>
               <Clock className="w-4 h-4 text-slate-400" />
             </div>
-            <h3 className="text-xl font-bold font-outfit text-white">Evening Batch 2</h3>
+            <h3 className="text-lg font-bold font-outfit text-white">2nd Batch (6:30 - 7:30 PM)</h3>
             <p className="text-xs text-amber-400 font-semibold font-mono">Time: 6:30 PM To 7:30 PM</p>
             <p className="text-xs text-slate-400">Curriculum: Kickboxing Sparring, Katana & Nunchaku Weapon Practice.</p>
           </div>
 
-          <div className="glass-card p-6 rounded-2xl space-y-3 border border-amber-500/40">
+          {/* Abhinadan - 3rd Batch */}
+          <div className="glass-card p-6 rounded-2xl space-y-3 border border-cyan-500/40">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-950/60 border border-amber-800 px-2.5 py-1 rounded-md">
-                Active Slot 3
+              <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2.5 py-1 rounded-md">
+                Abhinadan
               </span>
               <Clock className="w-4 h-4 text-slate-400" />
             </div>
-            <h3 className="text-xl font-bold font-outfit text-white">Evening Batch 3</h3>
+            <h3 className="text-lg font-bold font-outfit text-white">3rd Batch (6:30 - 7:30 PM)</h3>
+            <p className="text-xs text-amber-400 font-semibold font-mono">Time: 6:30 PM To 7:30 PM</p>
+            <p className="text-xs text-slate-400">Curriculum: Sparring Techniques, Self-Defense Drills & Combat Conditioning.</p>
+          </div>
+
+          {/* Abhinadan - 4th Batch */}
+          <div className="glass-card p-6 rounded-2xl space-y-3 border border-amber-500/40">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-950/60 border border-amber-800 px-2.5 py-1 rounded-md">
+                Abhinadan
+              </span>
+              <Clock className="w-4 h-4 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-bold font-outfit text-white">4th Batch (8:00 - 9:00 PM)</h3>
             <p className="text-xs text-amber-400 font-semibold font-mono">Time: 8:00 PM To 9:00 PM</p>
             <p className="text-xs text-slate-400">Curriculum: Advanced Combat, Black Belt Level Sparring & Self-Defense Escapes.</p>
           </div>

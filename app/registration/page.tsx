@@ -5,6 +5,7 @@ import { UserCheck, Shield, CheckCircle2, AlertCircle, ArrowRight, UserPlus, Fil
 import { submitRegistration, submitRegistrationApi } from '@/lib/sheets';
 import { BeltLevel, StudentRegistration } from '@/types';
 import { useToast } from '@/context/ToastContext';
+import { BATCH_GROUPS, DEFAULT_BATCH } from '@/lib/batches';
 
 export default function StudentRegistrationPage() {
   const { showToast } = useToast();
@@ -18,7 +19,7 @@ export default function StudentRegistrationPage() {
     guardianName: '',
     emergencyPhone: '',
     schoolName: '',
-    batch: 'Evening 5:00 To 6:00',
+    batch: DEFAULT_BATCH,
     beltLevel: 'White Belt' as BeltLevel,
     experience: 'Beginner (No prior experience)',
   });
@@ -64,7 +65,7 @@ export default function StudentRegistrationPage() {
         guardianName: '',
         emergencyPhone: '',
         schoolName: '',
-        batch: 'Evening 5:00 To 6:00',
+        batch: DEFAULT_BATCH,
         beltLevel: 'White Belt' as BeltLevel,
         experience: 'Beginner (No prior experience)',
       });
@@ -310,9 +311,15 @@ export default function StudentRegistrationPage() {
                       onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-red-500"
                     >
-                      <option value="Evening 5:00 To 6:00">Evening 5:00 To 6:00 PM</option>
-                      <option value="Evening 6:30 To 7:30">Evening 6:30 To 7:30 PM</option>
-                      <option value="Evening 8:00 To 9:00">Evening 8:00 To 9:00 PM</option>
+                      {BATCH_GROUPS.map((group) => (
+                        <optgroup key={group.location} label={group.location} className="bg-slate-900 text-slate-400 font-semibold">
+                          {group.batches.map((b) => (
+                            <option key={b.id} value={b.id} className="text-white">
+                              {b.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
 

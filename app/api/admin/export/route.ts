@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { checkAdminSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { getDatabase, syncFromSupabase } from '@/lib/db';
+import { getDatabase, syncFromSupabase, formatDateYMD } from '@/lib/db';
 import * as XLSX from 'xlsx-js-style';
 
 export async function GET(request: Request) {
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
     }
 
-    const { origin } = new URL(request.url);
+    const { origin, searchParams } = new URL(request.url);
 
     // Ensure latest sync from Supabase if configured
     if (isSupabaseConfigured()) {
@@ -76,38 +76,16 @@ export async function GET(request: Request) {
     const wsStudents = XLSX.utils.json_to_sheet(studentsData.length ? studentsData : [{ 'Info': 'No student records' }]);
     XLSX.utils.book_append_sheet(workbook, wsStudents, 'Students');
 
-    // 2. Attendance Monthly Register Matrix Sheet (Calendar Grid Format)
-    const now = new Date();
-    let targetYear = now.getFullYear();
-    let targetMonth = now.getMonth(); // 0-11
-
+    // 2. Attendance Monthly Register Matrix Sheets (Calendar Grid Format)
     const attRecords = db.attendance || [];
-    if (attRecords.length > 0) {
-      const dates = attRecords.map(a => a.date).filter(Boolean).sort().reverse();
-      if (dates.length > 0) {
-        const parts = dates[0].split('-');
-        if (parts.length >= 2) {
-          targetYear = parseInt(parts[0], 10);
-          targetMonth = parseInt(parts[1], 10) - 1;
-        }
-      }
-    }
-
-    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-
-    // Fast lookup map for attendance status
-    const recordMap = new Map<string, string>();
-    attRecords.forEach(rec => {
-      if (rec.date) {
-        if (rec.studentId) recordMap.set(`${rec.studentId}_${rec.date}`, rec.status);
-        if (rec.studentName) recordMap.set(`${rec.studentName.trim().toLowerCase()}_${rec.date}`, rec.status);
-      }
-    });
-
     const studentsList = db.students || [];
 
     // Define batches to group by
     const knownBatches = [
+      'Meghdoot Nagar - 1st Batch 5:00 - 6:00 PM',
+      'Meghdoot Nagar - 2nd Batch 6:30 - 7:30 PM',
+      'Abhinadan - 3rd Batch 6:30 - 7:30 PM',
+      'Abhinadan - 4th Batch 8:00 - 9:00 PM',
       'Evening 5:00 To 6:00',
       'Evening 6:30 To 7:30',
       'Evening 8:00 To 9:00',
@@ -118,183 +96,257 @@ export async function GET(request: Request) {
       ...existingBatches.filter(b => !knownBatches.includes(b)),
     ];
 
-    // Explicit Column Order without Batch and Belt
-    const dayHeaders: string[] = [];
-    for (let day = 1; day <= daysInMonth; day++) {
-      dayHeaders.push(String(day));
-    }
-    const attendanceHeaders = [
-      'S.No.',
-      'Student Name',
-      ...dayHeaders,
-      'P',
-      'A',
-      'PL',
-      '%',
-    ];
+    // Helper to generate a styled monthly calendar matrix sheet
+    const createMonthlyAttendanceSheet = (targetYear: number, targetMonth: number) => {
+      const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
 
-    const attendanceMatrixData: any[] = [];
-    const batchHeaderRowIndices: number[] = [];
-
-    orderedBatches.forEach(batchName => {
-      const batchStudents = studentsList.filter(s => (s.batch || 'Unassigned') === batchName);
-      if (batchStudents.length === 0) return;
-
-      // 1. Batch Section Divider Banner
-      const batchRowIndex = attendanceMatrixData.length + 1; // +1 because row 0 is table header
-      batchHeaderRowIndices.push(batchRowIndex);
-
-      const sectionBanner: Record<string, any> = {
-        'S.No.': `BATCH: ${batchName.toUpperCase()}`,
-        'Student Name': '',
-      };
-      dayHeaders.forEach(d => { sectionBanner[d] = ''; });
-      sectionBanner['P'] = '';
-      sectionBanner['A'] = '';
-      sectionBanner['PL'] = '';
-      sectionBanner['%'] = '';
-      attendanceMatrixData.push(sectionBanner);
-
-      // 2. Batch Students
-      batchStudents.forEach((s, idx) => {
-        const row: Record<string, any> = {
-          'S.No.': idx + 1,
-          'Student Name': sanitize(s.fullName),
-        };
-
-        let pCount = 0;
-        let aCount = 0;
-        let plCount = 0;
-
-        for (let day = 1; day <= daysInMonth; day++) {
-          const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const dayOfWeek = new Date(targetYear, targetMonth, day).getDay(); // 0 = Sunday
-
-          const status = recordMap.get(`${s.id}_${dateStr}`) || recordMap.get(`${s.fullName.trim().toLowerCase()}_${dateStr}`);
-
-          if (status === 'PRESENT') {
-            row[String(day)] = 'P';
-            pCount++;
-          } else if (status === 'ABSENT') {
-            row[String(day)] = 'A';
-            aCount++;
-          } else if (status === 'LATE') {
-            row[String(day)] = 'PL';
-            plCount++;
-          } else if (dayOfWeek === 0) {
-            row[String(day)] = 'SUN';
-          } else {
-            row[String(day)] = '-';
+      // Fast lookup map for attendance status (keyed by both ID and normalized Name)
+      const recordMap = new Map<string, string>();
+      attRecords.forEach(rec => {
+        if (rec.date) {
+          const cleanDate = formatDateYMD(rec.date);
+          if (rec.studentId) {
+            recordMap.set(`${rec.studentId.trim()}_${cleanDate}`, rec.status);
+          }
+          if (rec.studentName) {
+            const normName = rec.studentName.trim().toLowerCase().replace(/\s+/g, ' ');
+            recordMap.set(`${normName}_${cleanDate}`, rec.status);
           }
         }
-
-        row['P'] = pCount;
-        row['A'] = aCount;
-        row['PL'] = plCount * 2; // Penalty leave multiplied by 2
-        const effectiveAbsent = aCount + (plCount * 2);
-        const totalMarkedDays = pCount + effectiveAbsent;
-        row['%'] = totalMarkedDays > 0 ? `${((pCount / totalMarkedDays) * 100).toFixed(1)}%` : '0%';
-
-        attendanceMatrixData.push(row);
       });
-    });
 
-    const wsAttendance = XLSX.utils.json_to_sheet(
-      attendanceMatrixData.length ? attendanceMatrixData : [{ 'Info': 'No attendance records' }],
-      { header: attendanceHeaders }
-    );
+      const dayHeaders: string[] = [];
+      for (let day = 1; day <= daysInMonth; day++) {
+        dayHeaders.push(String(day));
+      }
+      const attendanceHeaders = [
+        'S.No.',
+        'Student Name',
+        ...dayHeaders,
+        'P',
+        'A',
+        'PL',
+        '%',
+      ];
 
-    // Set column widths
-    const colWidths = [
-      { wch: 8 },  // S.No.
-      { wch: 26 }, // Student Name
-      ...dayHeaders.map(() => ({ wch: 4 })), // Day columns 1..31
-      { wch: 6 },  // P
-      { wch: 6 },  // A
-      { wch: 6 },  // PL
-      { wch: 8 },  // %
-    ];
-    wsAttendance['!cols'] = colWidths;
+      const attendanceMatrixData: any[] = [];
+      const batchHeaderRowIndices: number[] = [];
 
-    // Merge batch section header rows across all columns
-    wsAttendance['!merges'] = batchHeaderRowIndices.map(rIdx => ({
-      s: { r: rIdx, c: 0 },
-      e: { r: rIdx, c: attendanceHeaders.length - 1 }
-    }));
+      orderedBatches.forEach(batchName => {
+        const batchStudents = studentsList.filter(s => (s.batch || 'Unassigned') === batchName);
+        if (batchStudents.length === 0) return;
 
-    // Apply color styling to cells (Green for P, Red for A, Orange for PL, Dark header)
-    const range = XLSX.utils.decode_range(wsAttendance['!ref'] || 'A1');
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-      const isBatchHeader = batchHeaderRowIndices.includes(R);
+        // 1. Batch Section Divider Banner
+        const batchRowIndex = attendanceMatrixData.length + 1; // +1 because row 0 is table header
+        batchHeaderRowIndices.push(batchRowIndex);
 
-      for (let C = range.s.c; C <= range.e.c; ++C) {
-        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-        const cell = wsAttendance[cellAddress];
-        if (!cell) continue;
+        const sectionBanner: Record<string, any> = {
+          'S.No.': `BATCH: ${batchName.toUpperCase()}`,
+          'Student Name': '',
+        };
+        dayHeaders.forEach(d => { sectionBanner[d] = ''; });
+        sectionBanner['P'] = '';
+        sectionBanner['A'] = '';
+        sectionBanner['PL'] = '';
+        sectionBanner['%'] = '';
+        attendanceMatrixData.push(sectionBanner);
 
-        // Table Header Row Styling
-        if (R === 0) {
-          cell.s = {
-            fill: { fgColor: { rgb: '1E293B' } }, // Dark Slate
-            font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 },
-            alignment: { horizontal: 'center', vertical: 'center' },
+        // 2. Batch Students
+        batchStudents.forEach((s, idx) => {
+          const row: Record<string, any> = {
+            'S.No.': idx + 1,
+            'Student Name': sanitize(s.fullName),
           };
-          continue;
-        }
 
-        // Batch Section Divider Row Styling
-        if (isBatchHeader) {
-          cell.s = {
-            fill: { fgColor: { rgb: '0F172A' } }, // Very dark navy
-            font: { color: { rgb: 'F59E0B' }, bold: true, sz: 11 }, // Amber gold bold text
-            alignment: { horizontal: 'left', vertical: 'center' },
-          };
-          continue;
-        }
+          let pCount = 0;
+          let aCount = 0;
+          let plCount = 0;
 
-        // Student Name left aligned
-        if (C === 1) {
-          cell.s = {
-            font: { bold: true, sz: 10 },
-            alignment: { horizontal: 'left', vertical: 'center' },
-          };
-          continue;
-        }
+          const sId = (s.id || '').trim();
+          const sNormName = (s.fullName || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-        // Color coding for Present, Absent, Late, Sunday
-        if (cell.v === 'P') {
-          cell.s = {
-            fill: { fgColor: { rgb: 'C6EFCE' } }, // Soft Green fill
-            font: { color: { rgb: '006100' }, bold: true, sz: 10 }, // Dark Green text
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        } else if (cell.v === 'A') {
-          cell.s = {
-            fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft Red fill
-            font: { color: { rgb: '9C0006' }, bold: true, sz: 10 }, // Dark Red text
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        } else if (cell.v === 'PL') {
-          cell.s = {
-            fill: { fgColor: { rgb: 'FFEB9C' } }, // Soft Yellow/Orange fill
-            font: { color: { rgb: '9C6500' }, bold: true, sz: 10 }, // Dark Orange text
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        } else if (cell.v === 'SUN') {
-          cell.s = {
-            fill: { fgColor: { rgb: 'F1F5F9' } },
-            font: { color: { rgb: '94A3B8' }, sz: 9 },
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
-        } else {
-          cell.s = {
-            alignment: { horizontal: 'center', vertical: 'center' },
-          };
+          for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dayOfWeek = new Date(targetYear, targetMonth, day).getDay(); // 0 = Sunday
+
+            const status = recordMap.get(`${sId}_${dateStr}`) || recordMap.get(`${sNormName}_${dateStr}`);
+
+            if (status === 'PRESENT') {
+              row[String(day)] = 'P';
+              pCount++;
+            } else if (status === 'ABSENT') {
+              row[String(day)] = 'A';
+              aCount++;
+            } else if (status === 'LATE') {
+              row[String(day)] = 'PL';
+              plCount++;
+            } else if (dayOfWeek === 0) {
+              row[String(day)] = 'SUN';
+            } else {
+              row[String(day)] = '-';
+            }
+          }
+
+          row['P'] = pCount;
+          row['A'] = aCount;
+          row['PL'] = plCount * 2; // Penalty leave multiplied by 2
+          const effectiveAbsent = aCount + (plCount * 2);
+          const totalMarkedDays = pCount + effectiveAbsent;
+          row['%'] = totalMarkedDays > 0 ? `${((pCount / totalMarkedDays) * 100).toFixed(1)}%` : '0%';
+
+          attendanceMatrixData.push(row);
+        });
+      });
+
+      const wsAttendance = XLSX.utils.json_to_sheet(
+        attendanceMatrixData.length ? attendanceMatrixData : [{ 'Info': 'No attendance records' }],
+        { header: attendanceHeaders }
+      );
+
+      // Set column widths
+      const colWidths = [
+        { wch: 8 },  // S.No.
+        { wch: 26 }, // Student Name
+        ...dayHeaders.map(() => ({ wch: 4 })), // Day columns 1..31
+        { wch: 6 },  // P
+        { wch: 6 },  // A
+        { wch: 6 },  // PL
+        { wch: 8 },  // %
+      ];
+      wsAttendance['!cols'] = colWidths;
+
+      // Merge batch section header rows across all columns
+      wsAttendance['!merges'] = batchHeaderRowIndices.map(rIdx => ({
+        s: { r: rIdx, c: 0 },
+        e: { r: rIdx, c: attendanceHeaders.length - 1 }
+      }));
+
+      // Apply cell styling
+      const range = XLSX.utils.decode_range(wsAttendance['!ref'] || 'A1');
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        const isBatchHeader = batchHeaderRowIndices.includes(R);
+
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = wsAttendance[cellAddress];
+          if (!cell) continue;
+
+          // Table Header Row Styling
+          if (R === 0) {
+            cell.s = {
+              fill: { fgColor: { rgb: '1E293B' } }, // Dark Slate
+              font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 10 },
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+            continue;
+          }
+
+          // Batch Section Divider Row Styling
+          if (isBatchHeader) {
+            cell.s = {
+              fill: { fgColor: { rgb: '0F172A' } }, // Very dark navy
+              font: { color: { rgb: 'F59E0B' }, bold: true, sz: 11 }, // Amber gold bold text
+              alignment: { horizontal: 'left', vertical: 'center' },
+            };
+            continue;
+          }
+
+          // Student Name left aligned
+          if (C === 1) {
+            cell.s = {
+              font: { bold: true, sz: 10 },
+              alignment: { horizontal: 'left', vertical: 'center' },
+            };
+            continue;
+          }
+
+          // Color coding for Present, Absent, Late, Sunday
+          if (cell.v === 'P') {
+            cell.s = {
+              fill: { fgColor: { rgb: 'C6EFCE' } }, // Soft Green fill
+              font: { color: { rgb: '006100' }, bold: true, sz: 10 }, // Dark Green text
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else if (cell.v === 'A') {
+            cell.s = {
+              fill: { fgColor: { rgb: 'FFC7CE' } }, // Soft Red fill
+              font: { color: { rgb: '9C0006' }, bold: true, sz: 10 }, // Dark Red text
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else if (cell.v === 'PL') {
+            cell.s = {
+              fill: { fgColor: { rgb: 'FFEB9C' } }, // Soft Yellow/Orange fill
+              font: { color: { rgb: '9C6500' }, bold: true, sz: 10 }, // Dark Orange text
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else if (cell.v === 'SUN') {
+            cell.s = {
+              fill: { fgColor: { rgb: 'F1F5F9' } },
+              font: { color: { rgb: '94A3B8' }, sz: 9 },
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else {
+            cell.s = {
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          }
         }
       }
+
+      return wsAttendance;
+    };
+
+    // Determine all distinct months available in attendance records (e.g. ['2026-10', '2026-09'])
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const distinctMonths = Array.from(new Set(
+      attRecords.map(a => a.date ? formatDateYMD(a.date).slice(0, 7) : '').filter(Boolean)
+    )).sort().reverse();
+
+    // Determine target month from query parameter ?month=YYYY-MM, or use newest month
+    const requestedMonth = searchParams.get('month'); // e.g. "2026-09"
+    let primaryYear = now.getFullYear();
+    let primaryMonth = now.getMonth();
+
+    if (requestedMonth && requestedMonth.includes('-')) {
+      const parts = requestedMonth.split('-');
+      primaryYear = parseInt(parts[0], 10);
+      primaryMonth = parseInt(parts[1], 10) - 1;
+    } else if (distinctMonths.length > 0) {
+      const parts = distinctMonths[0].split('-');
+      primaryYear = parseInt(parts[0], 10);
+      primaryMonth = parseInt(parts[1], 10) - 1;
     }
 
-    XLSX.utils.book_append_sheet(workbook, wsAttendance, 'Attendance');
+    // 1. Primary Attendance Sheet (named 'Attendance')
+    const primaryWs = createMonthlyAttendanceSheet(primaryYear, primaryMonth);
+    const primaryMonthLabel = `${monthNames[primaryMonth]} ${primaryYear}`;
+    XLSX.utils.book_append_sheet(workbook, primaryWs, `Attendance (${primaryMonthLabel})`);
+
+    // 2. Additional monthly sheets for any other months with data so past records are never lost
+    for (const mStr of distinctMonths) {
+      const [y, m] = mStr.split('-').map(Number);
+      if (y === primaryYear && (m - 1) === primaryMonth) continue; // Skip primary, already appended
+      const otherWs = createMonthlyAttendanceSheet(y, m - 1);
+      const label = `${monthNames[m - 1]} ${y}`;
+      XLSX.utils.book_append_sheet(workbook, otherWs, `Attendance (${label})`);
+    }
+
+    // 3. Complete raw chronological Attendance Log sheet
+    const attendanceRawData = attRecords.map(a => ({
+      'Attendance ID': sanitize(a.id),
+      'Date': sanitize(formatDateYMD(a.date)),
+      'Student ID': sanitize(a.studentId),
+      'Student Name': sanitize(a.studentName),
+      'Batch': sanitize(a.batch),
+      'Status': sanitize(a.status),
+      'Check-in Time': sanitize(a.checkInTime),
+      'Remarks': sanitize(a.remarks),
+    }));
+    const wsAttendanceLog = XLSX.utils.json_to_sheet(
+      attendanceRawData.length ? attendanceRawData : [{ 'Info': 'No attendance records' }]
+    );
+    XLSX.utils.book_append_sheet(workbook, wsAttendanceLog, 'Attendance Log');
 
     // 3. Achievements Sheet
     const achievementsData = (db.achievements || []).map(ach => ({

@@ -24,6 +24,7 @@ import {
 import { Student, AttendanceRecord, Achievement, ContactMessage, StudentRegistration, BeltLevel, UpcomingEvent } from '@/types';
 import { useToast } from '@/context/ToastContext';
 import Pagination from '@/components/Pagination';
+import { BATCH_GROUPS, DEFAULT_BATCH, matchesBatchSelection } from '@/lib/batches';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -92,7 +93,7 @@ export default function AdminDashboardPage() {
     address: '',
     guardianName: '',
     emergencyPhone: '',
-    batch: 'Evening 5:00 To 6:00',
+    batch: DEFAULT_BATCH,
     beltLevel: 'White Belt' as BeltLevel,
   });
 
@@ -297,9 +298,10 @@ export default function AdminDashboardPage() {
 
   const handleExportExcel = async () => {
     setIsExporting(true);
-    showToast('Preparing multi-sheet Excel file...', 'info');
+    showToast('Preparing multi-sheet Excel file with complete attendance...', 'info');
     try {
-      const res = await fetch('/api/admin/export');
+      const monthParam = (activeTab === 'attendance' && attendanceDate) ? `?month=${attendanceDate.slice(0, 7)}` : '';
+      const res = await fetch(`/api/admin/export${monthParam}`);
       if (!res.ok) throw new Error('Failed to generate export');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -346,7 +348,7 @@ export default function AdminDashboardPage() {
     setIsSavingAttendance(true);
     const targetDate = formatDateYMD(attendanceDate);
     const updates = students
-      .filter((s) => attendanceBatch === 'ALL' || s.batch === attendanceBatch)
+      .filter((s) => matchesBatchSelection(s.batch, attendanceBatch))
       .map((s) => ({
         studentId: s.id,
         studentName: s.fullName,
@@ -406,7 +408,7 @@ export default function AdminDashboardPage() {
         address: '',
         guardianName: '',
         emergencyPhone: '',
-        batch: 'Evening 5:00 To 6:00',
+        batch: DEFAULT_BATCH,
         beltLevel: 'White Belt',
       });
       await refreshData();
@@ -670,13 +672,13 @@ export default function AdminDashboardPage() {
                           s.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           s.phone.includes(searchTerm);
     const matchesBelt = beltFilter === 'ALL' || s.beltLevel === beltFilter;
-    const matchesBatch = batchFilter === 'ALL' || s.batch === batchFilter || s.batch.toLowerCase().includes(batchFilter.toLowerCase());
+    const matchesBatch = matchesBatchSelection(s.batch, batchFilter);
     return matchesSearch && matchesBelt && matchesBatch;
   });
 
   // Filtered Students for Attendance Marker
   const filteredAttendanceStudents = students.filter((s) => {
-    const matchesBatch = attendanceBatch === 'ALL' || s.batch === attendanceBatch || s.batch.toLowerCase().includes(attendanceBatch.toLowerCase());
+    const matchesBatch = matchesBatchSelection(s.batch, attendanceBatch);
     const q = attendanceSearchTerm.trim().toLowerCase();
     const matchesSearch = !q || (
       s.fullName.toLowerCase().includes(q) ||
@@ -988,9 +990,15 @@ export default function AdminDashboardPage() {
                   className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                 >
                   <option value="ALL">All Batches</option>
-                  <option value="Evening 5:00 To 6:00">Evening 5:00 To 6:00</option>
-                  <option value="Evening 6:30 To 7:30">Evening 6:30 To 7:30</option>
-                  <option value="Evening 8:00 To 9:00">Evening 8:00 To 9:00</option>
+                  {BATCH_GROUPS.map((group) => (
+                    <optgroup key={group.location} label={group.location} className="bg-slate-900 text-slate-400 font-semibold">
+                      {group.batches.map((b) => (
+                        <option key={b.id} value={b.id} className="text-white">
+                          {b.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
 
                 <button
@@ -1163,9 +1171,15 @@ export default function AdminDashboardPage() {
                     className="w-full sm:w-auto bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                   >
                     <option value="ALL">All Batches</option>
-                    <option value="Evening 5:00 To 6:00">Evening 5:00 To 6:00</option>
-                    <option value="Evening 6:30 To 7:30">Evening 6:30 To 7:30</option>
-                    <option value="Evening 8:00 To 9:00">Evening 8:00 To 9:00</option>
+                    {BATCH_GROUPS.map((group) => (
+                      <optgroup key={group.location} label={group.location} className="bg-slate-900 text-slate-400 font-semibold">
+                        {group.batches.map((b) => (
+                          <option key={b.id} value={b.id} className="text-white">
+                            {b.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
 
@@ -1741,9 +1755,15 @@ export default function AdminDashboardPage() {
                   onChange={(e) => setNewStudentForm({ ...newStudentForm, batch: e.target.value as any })}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
                 >
-                  <option value="Evening 5:00 To 6:00">Evening 5:00 To 6:00</option>
-                  <option value="Evening 6:30 To 7:30">Evening 6:30 To 7:30</option>
-                  <option value="Evening 8:00 To 9:00">Evening 8:00 To 9:00</option>
+                  {BATCH_GROUPS.map((group) => (
+                    <optgroup key={group.location} label={group.location} className="bg-slate-900 text-slate-400 font-semibold">
+                      {group.batches.map((b) => (
+                        <option key={b.id} value={b.id} className="text-white">
+                          {b.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
 
                 <select
@@ -2250,9 +2270,15 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setEditingStudent({ ...editingStudent, batch: e.target.value as any })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white"
                   >
-                    <option value="Evening 5:00 To 6:00">Evening 5:00 To 6:00</option>
-                    <option value="Evening 6:30 To 7:30">Evening 6:30 To 7:30</option>
-                    <option value="Evening 8:00 To 9:00">Evening 8:00 To 9:00</option>
+                    {BATCH_GROUPS.map((group) => (
+                      <optgroup key={group.location} label={group.location} className="bg-slate-900 text-slate-400 font-semibold">
+                        {group.batches.map((b) => (
+                          <option key={b.id} value={b.id} className="text-white">
+                            {b.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
 

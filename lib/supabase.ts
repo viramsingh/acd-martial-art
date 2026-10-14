@@ -58,7 +58,7 @@ export async function syncMutationToSupabase(action: string, payload: any): Prom
           guardian_name: payload.guardianName || '',
           emergency_phone: payload.emergencyPhone || '',
           school_name: payload.schoolName || '',
-          batch: payload.batch || 'Evening 5:00 To 6:00',
+          batch: payload.batch || 'Meghdoot Nagar - 1st Batch 5:00 - 6:00 PM',
           belt_level: payload.beltLevel || 'White Belt',
           status: payload.status || 'ACTIVE',
           joining_date: payload.joiningDate || ''
@@ -81,7 +81,10 @@ export async function syncMutationToSupabase(action: string, payload: any): Prom
             check_in_time: r.checkInTime || '',
             remarks: r.remarks || ''
           }));
-          await supabase.from('attendance').upsert(records);
+          for (let i = 0; i < records.length; i += 500) {
+            const chunk = records.slice(i, i + 500);
+            await supabase.from('attendance').upsert(chunk);
+          }
         }
         break;
 
@@ -149,7 +152,7 @@ export async function syncMutationToSupabase(action: string, payload: any): Prom
           guardian_name: payload.guardianName || '',
           emergency_phone: payload.emergencyPhone || '',
           school_name: payload.schoolName || '',
-          batch: payload.batch || 'Evening 5:00 To 6:00',
+          batch: payload.batch || 'Meghdoot Nagar - 1st Batch 5:00 - 6:00 PM',
           belt_level: payload.beltLevel || 'White Belt',
           experience: payload.experience || 'Beginner',
           status: payload.status || 'PENDING',

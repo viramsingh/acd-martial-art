@@ -153,7 +153,7 @@ export default function HomePage() {
                 <Users className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="text-2xl font-black text-white font-outfit">500+</h4>
+                <h4 className="text-2xl font-black text-white font-outfit">100+</h4>
                 <p className="text-xs text-slate-400 font-medium">Students Enrolled & Trained</p>
               </div>
             </div>

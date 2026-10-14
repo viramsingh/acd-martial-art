@@ -104,6 +104,29 @@ async function syncToGoogleSheets(_action: string, _payload: any) {
 let lastSyncTimestamp = 0;
 const SYNC_CACHE_TTL = 60 * 1000; // 60 seconds cache TTL for super-fast API response
 
+// Helper to fetch all rows across PostgREST 1000-row pagination limit
+async function fetchAllFromTable(supabase: any, table: string): Promise<any[]> {
+  let allRows: any[] = [];
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error(`Error fetching paginated data from ${table}:`, error);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return allRows;
+}
+
 // Async sync FROM Supabase Cloud PostgreSQL
 export async function syncFromSupabase(): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
@@ -111,20 +134,20 @@ export async function syncFromSupabase(): Promise<boolean> {
   if (!supabase) return false;
 
   try {
-    const [studentsRes, attendanceRes, achievementsRes, eventsRes, messagesRes, registrationsRes, sheetsConfigRes] = await Promise.all([
-      supabase.from('students').select('*'),
-      supabase.from('attendance').select('*'),
-      supabase.from('achievements').select('*'),
-      supabase.from('events').select('*'),
-      supabase.from('messages').select('*'),
-      supabase.from('registrations').select('*'),
+    const [studentsData, attendanceData, achievementsData, eventsData, messagesData, registrationsData, sheetsConfigRes] = await Promise.all([
+      fetchAllFromTable(supabase, 'students'),
+      fetchAllFromTable(supabase, 'attendance'),
+      fetchAllFromTable(supabase, 'achievements'),
+      fetchAllFromTable(supabase, 'events'),
+      fetchAllFromTable(supabase, 'messages'),
+      fetchAllFromTable(supabase, 'registrations'),
       supabase.from('sheets_config').select('*').eq('id', 'config_primary').maybeSingle(),
     ]);
 
     const db = getDatabase();
 
-    if (studentsRes.data) {
-      db.students = studentsRes.data.map((s: any) => ({
+    if (studentsData.length > 0) {
+      db.students = studentsData.map((s: any) => ({
         id: s.id,
         fullName: s.full_name,
         dob: s.dob || '',
@@ -135,15 +158,15 @@ export async function syncFromSupabase(): Promise<boolean> {
         guardianName: s.guardian_name || '',
         emergencyPhone: s.emergency_phone || '',
         schoolName: s.school_name || '',
-        batch: s.batch || 'Evening 5:00 To 6:00',
+        batch: s.batch || 'Meghdoot Nagar - 1st Batch 5:00 - 6:00 PM',
         beltLevel: s.belt_level || 'White Belt',
         status: s.status || 'ACTIVE',
         joiningDate: s.joining_date || ''
       }));
     }
 
-    if (attendanceRes.data) {
-      db.attendance = attendanceRes.data.map((a: any) => ({
+    if (attendanceData.length > 0) {
+      db.attendance = attendanceData.map((a: any) => ({
         id: a.id,
         date: a.date,
         studentId: a.student_id,
@@ -155,8 +178,8 @@ export async function syncFromSupabase(): Promise<boolean> {
       }));
     }
 
-    if (achievementsRes.data) {
-      db.achievements = achievementsRes.data.map((a: any) => ({
+    if (achievementsData.length > 0) {
+      db.achievements = achievementsData.map((a: any) => ({
         id: a.id,
         title: a.title,
         studentName: a.student_name,
@@ -168,8 +191,8 @@ export async function syncFromSupabase(): Promise<boolean> {
       }));
     }
 
-    if (eventsRes.data) {
-      db.events = eventsRes.data.map((e: any) => ({
+    if (eventsData.length > 0) {
+      db.events = eventsData.map((e: any) => ({
         id: e.id,
         title: e.title,
         category: e.category || 'EVENT',
@@ -178,12 +201,12 @@ export async function syncFromSupabase(): Promise<boolean> {
         location: e.location || '',
         desc: e.description || '',
         badgeColor: e.badge_color || 'gold',
-        image: e.image || e.image_url || '/assets/IMG_4159.PNG'
+        image: e.image || ''
       }));
     }
 
-    if (messagesRes.data) {
-      db.messages = messagesRes.data.map((m: any) => ({
+    if (messagesData.length > 0) {
+      db.messages = messagesData.map((m: any) => ({
         id: m.id,
         name: m.name,
         email: m.email || '',
@@ -195,8 +218,8 @@ export async function syncFromSupabase(): Promise<boolean> {
       }));
     }
 
-    if (registrationsRes.data) {
-      db.registrations = registrationsRes.data.map((r: any) => ({
+    if (registrationsData.length > 0) {
+      db.registrations = registrationsData.map((r: any) => ({
         id: r.id,
         fullName: r.full_name,
         dob: r.dob || '',
@@ -207,13 +230,14 @@ export async function syncFromSupabase(): Promise<boolean> {
         guardianName: r.guardian_name || '',
         emergencyPhone: r.emergency_phone || '',
         schoolName: r.school_name || '',
-        batch: r.batch || 'Evening 5:00 To 6:00',
+        batch: r.batch || 'Meghdoot Nagar - 1st Batch 5:00 - 6:00 PM',
         beltLevel: r.belt_level || 'White Belt',
         experience: r.experience || 'Beginner',
         status: r.status || 'PENDING',
         submittedAt: r.submitted_at || ''
       }));
     }
+
 
     if (sheetsConfigRes.data) {
       db.sheetsConfig = {
@@ -405,11 +429,16 @@ export function markAttendanceDB(
   const targetDate = formatDateYMD(date);
 
   const updatedRecords = [...(db.attendance || [])];
+  const affectedRecords: AttendanceRecord[] = [];
 
   for (const item of updates) {
-    // Match by same Date + same Student + same Batch
+    const targetStudentName = (item.studentName || '').trim().toLowerCase();
+    // Match by same Date + same Student (ID or Name)
     const existingIndex = updatedRecords.findIndex(
-      (r) => formatDateYMD(r.date) === targetDate && r.studentId === item.studentId && r.batch === item.batch
+      (r) => formatDateYMD(r.date) === targetDate && (
+        r.studentId === item.studentId ||
+        (targetStudentName && r.studentName.trim().toLowerCase() === targetStudentName)
+      )
     );
 
     if (existingIndex !== -1) {
@@ -417,10 +446,13 @@ export function markAttendanceDB(
       updatedRecords[existingIndex] = {
         ...updatedRecords[existingIndex],
         date: targetDate,
+        studentName: item.studentName || updatedRecords[existingIndex].studentName,
+        batch: item.batch || updatedRecords[existingIndex].batch,
         status: item.status,
       };
+      affectedRecords.push(updatedRecords[existingIndex]);
     } else {
-      // Create new entry for different batch or new date
+      // Create new entry for student on this date
       const newRec: AttendanceRecord = {
         id: `ATT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         date: targetDate,
@@ -430,13 +462,14 @@ export function markAttendanceDB(
         status: item.status,
       };
       updatedRecords.unshift(newRec);
+      affectedRecords.push(newRec);
     }
   }
 
   db.attendance = updatedRecords;
   saveDatabase(db);
   syncToGoogleSheets('MARK_ATTENDANCE', { date: targetDate, updates });
-  syncMutationToSupabase('MARK_ATTENDANCE', updatedRecords);
+  syncMutationToSupabase('MARK_ATTENDANCE', affectedRecords);
   return db.attendance;
 }
 
